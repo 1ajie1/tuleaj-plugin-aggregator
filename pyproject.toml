@@ -1,0 +1,10 @@
+[project]
+name = "tuleaj-plugin-aggregator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "markdown>=3.9",
+    "pyside6>=6.9.3",
+]
