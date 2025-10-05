@@ -1,10 +1,11 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import ConfigBridge 1.0
 
 ApplicationWindow {
     id: settingsWindow
-    title: "设置"
+    title: "设置 - " + (configBridge ? configBridge.appName : "Tuleaj Plugin Aggregator")
     width: Math.min(600, Screen.width * 0.8)
     height: Math.min(650, Screen.height * 0.7)
     minimumWidth: 550
@@ -12,15 +13,105 @@ ApplicationWindow {
     visible: false
     modality: Qt.ApplicationModal
     
+    // 当窗口显示时重新居中
+    onVisibleChanged: {
+        if (visible) {
+            centerWindow()
+        }
+    }
+    
+    // 窗口居中函数
+    function centerWindow() {
+        // 确保窗口完全居中显示
+        settingsWindow.x = Math.max(0, (Screen.width - settingsWindow.width) / 2)
+        settingsWindow.y = Math.max(0, (Screen.height - settingsWindow.height) / 2)
+    }
+    
     // 窗口居中
     Component.onCompleted: {
-        settingsWindow.x = (Screen.width - settingsWindow.width) / 2
-        settingsWindow.y = (Screen.height - settingsWindow.height) / 2
+        centerWindow()
+        
+        // 连接配置桥接器信号
+        if (configBridge) {
+            configBridge.configError.connect(function(errorMessage) {
+                console.log("设置错误:", errorMessage)
+            })
+            
+            configBridge.configSaved.connect(function() {
+                console.log("设置已保存")
+            })
+            
+            // 连接Python环境管理信号
+            configBridge.environmentCreated.connect(function(envName, success, message) {
+                console.log("环境创建:", envName, success, message)
+                if (success) {
+                    // 可以显示成功消息
+                } else {
+                    // 可以显示错误消息
+                }
+            })
+            
+            configBridge.environmentDeleted.connect(function(envName, success, message) {
+                console.log("环境删除:", envName, success, message)
+                if (success) {
+                    // 可以显示成功消息
+                } else {
+                    // 可以显示错误消息
+                }
+            })
+            
+            configBridge.environmentListUpdated.connect(function(environments) {
+                console.log("环境列表更新:", environments.length, "个环境")
+                // 环境列表更新信号已移动到SettingsPython.qml中处理
+            })
+            
+            configBridge.currentEnvironmentChanged.connect(function(envName) {
+                console.log("当前环境切换为:", envName)
+            })
+            
+            // 连接消息提示信号
+            configBridge.showSuccessMessageSignal.connect(function(title, content, duration) {
+                messageManager.showSuccess(title, content, duration)
+            })
+            
+            configBridge.showErrorMessageSignal.connect(function(title, content, duration) {
+                messageManager.showError(title, content, duration)
+            })
+            
+            configBridge.showWarningMessageSignal.connect(function(title, content, duration) {
+                messageManager.showWarning(title, content, duration)
+            })
+            
+            configBridge.showInfoMessageSignal.connect(function(title, content, duration) {
+                messageManager.showInfo(title, content, duration)
+            })
+            
+            // 连接通用消息信号
+            configBridge.showMessageSignal.connect(function(messageType, title, content, duration) {
+                if (messageType === "success") {
+                    messageManager.showSuccess(title, content, duration)
+                } else if (messageType === "error") {
+                    messageManager.showError(title, content, duration)
+                } else if (messageType === "warning") {
+                    messageManager.showWarning(title, content, duration)
+                } else if (messageType === "info") {
+                    messageManager.showInfo(title, content, duration)
+                }
+            })
+        } else {
+            console.log("configBridge不可用，无法连接信号")
+        }
     }
     
     Rectangle {
         anchors.fill: parent
         color: "#ffffff"
+        
+        // 消息管理器
+        MessageManager {
+            id: messageManager
+            anchors.fill: parent
+        }
         
         ColumnLayout {
             anchors.fill: parent
@@ -188,6 +279,13 @@ ApplicationWindow {
                         ListElement {
                             type: "plugin"
                         }
+                        ListElement {
+                            type: "title"
+                            text: "🌐 镜像源设置"
+                        }
+                        ListElement {
+                            type: "mirror"
+                        }
                     }
                     
                     delegate: Loader {
@@ -201,6 +299,8 @@ ApplicationWindow {
                                 return pythonComponent
                             } else if (model.type === "plugin") {
                                 return pluginComponent
+                            } else if (model.type === "mirror") {
+                                return mirrorComponent
                             }
                             return null
                         }
@@ -214,7 +314,7 @@ ApplicationWindow {
                 Component {
                     id: titleComponent
                     Text {
-                        text: parent.itemModel.text
+                        text: itemModel ? itemModel.text : ""
                         font.pixelSize: 18
                         font.bold: true
                         color: "#333333"
@@ -227,340 +327,38 @@ ApplicationWindow {
                 // 主题设置组件
                 Component {
                     id: themeComponent
-                    Rectangle {
+                    SettingsTheme {
                         width: settingsListView.width
-                        height: themeColumnLayout.implicitHeight + 24  // 内容高度 + 边距
-                        color: "#f8f9fa"
-                        radius: 8
-                        border.color: "#e0e0e0"
-                        border.width: 1
-                        
-                        ColumnLayout {
-                            id: themeColumnLayout
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.leftMargin: 24  // 增加左右边距
-                            anchors.rightMargin: 24
-                            anchors.topMargin: 12
-                            anchors.bottomMargin: 12
-                            spacing: 12  // 减少间距
-                            
-                            RowLayout {
-                                spacing: 8  // 添加间距
-                                
-                                Text {
-                                    text: "主题模式:"
-                                    font.pixelSize: 14
-                                    color: "#333333"
-                                    Layout.preferredWidth: 80
-                                }
-                                
-                                ComboBox {
-                                    id: themeComboBox
-                                    model: ["浅色模式", "深色模式", "自动"]
-                                    currentIndex: 0
-                                    Layout.fillWidth: true
-                                }
-                            }
-                        }
                     }
                 }
                 
                 // Python环境配置组件
                 Component {
                     id: pythonComponent
-                    Rectangle {
+                    SettingsPython {
                         width: settingsListView.width
-                        height: pythonColumnLayout.implicitHeight + 24  // 内容高度 + 边距
-                        color: "#f8f9fa"
-                        radius: 8
-                        border.color: "#e0e0e0"
-                        border.width: 1
-                        
-                        ColumnLayout {
-                            id: pythonColumnLayout
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.leftMargin: 24  // 增加左右边距
-                            anchors.rightMargin: 24
-                            anchors.topMargin: 12
-                            anchors.bottomMargin: 12
-                            spacing: 16  // 增加间距以适应更多内容
-                            
-                            // 当前虚拟环境信息
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: currentEnvLayout.implicitHeight + 16
-                                color: "#e8f5e8"
-                                radius: 6
-                                border.color: "#4CAF50"
-                                border.width: 1
-                                
-                                ColumnLayout {
-                                    id: currentEnvLayout
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 8
-                                    
-                                    Text {
-                                        text: "当前虚拟环境"
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                        color: "#2E7D32"
-                                    }
-                                    
-                                    RowLayout {
-                                        spacing: 8
-                                        
-                                        Text {
-                                            text: "环境名称:"
-                                            font.pixelSize: 12
-                                            color: "#333333"
-                                            Layout.preferredWidth: 80
-                                        }
-                                        
-                                        Text {
-                                            text: "tuleaj-plugin-aggregator"
-                                            font.pixelSize: 12
-                                            color: "#666666"
-                                            Layout.fillWidth: true
-                                        }
-                                        
-                                        Button {
-                                            text: "查看详情"
-                                            width: 80
-                                            height: 24
-                                            font.pixelSize: 10
-                                            
-                                            onClicked: {
-                                                console.log("查看当前环境详情")
-                                            }
-                                        }
-                                    }
-                                    
-                                    RowLayout {
-                                        spacing: 8
-                                        
-                                        Text {
-                                            text: "Python版本:"
-                                            font.pixelSize: 12
-                                            color: "#333333"
-                                            Layout.preferredWidth: 80
-                                        }
-                                        
-                                        Text {
-                                            text: "Python 3.11.0"
-                                            font.pixelSize: 12
-                                            color: "#666666"
-                                            Layout.fillWidth: true
-                                        }
-                                        
-                                        Button {
-                                            text: "刷新"
-                                            width: 60
-                                            height: 24
-                                            font.pixelSize: 10
-                                            
-                                            onClicked: {
-                                                console.log("刷新环境信息")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // 创建新虚拟环境
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: newEnvLayout.implicitHeight + 16
-                                color: "#fff3e0"
-                                radius: 6
-                                border.color: "#FF9800"
-                                border.width: 1
-                                
-                                ColumnLayout {
-                                    id: newEnvLayout
-                                    anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 8
-                                    
-                                    Text {
-                                        text: "创建新虚拟环境"
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                        color: "#E65100"
-                                    }
-                                    
-                                    RowLayout {
-                                        spacing: 8
-                                        
-                                        Text {
-                                            text: "环境名称:"
-                                            font.pixelSize: 12
-                                            color: "#333333"
-                                            Layout.preferredWidth: 80
-                                        }
-                                        
-                                        TextField {
-                                            id: newEnvNameField
-                                            placeholderText: "输入环境名称"
-                                            Layout.fillWidth: true
-                                            height: 28
-                                        }
-                                    }
-                                    
-                                    RowLayout {
-                                        spacing: 8
-                                        
-                                        Text {
-                                            text: "Python版本:"
-                                            font.pixelSize: 12
-                                            color: "#333333"
-                                            Layout.preferredWidth: 80
-                                        }
-                                        
-                                        ComboBox {
-                                            id: pythonVersionComboBox
-                                            model: ["Python 3.8", "Python 3.9", "Python 3.10", "Python 3.11", "Python 3.12"]
-                                            currentIndex: 3
-                                            Layout.fillWidth: true
-                                        }
-                                    }
-                                    
-                                    RowLayout {
-                                        spacing: 8
-                                        
-                                        Item {
-                                            Layout.fillWidth: true
-                                        }
-                                        
-                                        Button {
-                                            text: "创建环境"
-                                            width: 100
-                                            height: 28
-                                            font.pixelSize: 11
-                                            highlighted: true
-                                            
-                                            onClicked: {
-                                                console.log("创建新环境:", newEnvNameField.text, pythonVersionComboBox.currentText)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
                 
                 // 插件设置组件
                 Component {
                     id: pluginComponent
-                    Rectangle {
+                    SettingsPlugin {
                         width: settingsListView.width
-                        height: pluginColumnLayout.implicitHeight + 24  // 内容高度 + 边距
-                        color: "#f8f9fa"
-                        radius: 8
-                        border.color: "#e0e0e0"
-                        border.width: 1
+                    }
+                }
+                
+                // 镜像源设置组件
+                Component {
+                    id: mirrorComponent
+                    SettingsMirror {
+                        width: settingsListView.width
                         
-                        ColumnLayout {
-                            id: pluginColumnLayout
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.leftMargin: 24  // 增加左右边距
-                            anchors.rightMargin: 24
-                            anchors.topMargin: 12
-                            anchors.bottomMargin: 12
-                            spacing: 12  // 减少间距
-                            
-                            RowLayout {
-                                CheckBox {
-                                    id: autoStartCheckBox
-                                    text: "自动启动已安装的插件"
-                                    checked: false
-                                }
-                            }
-                            
-                            RowLayout {
-                                CheckBox {
-                                    id: updateCheckBox
-                                    text: "自动检查插件更新"
-                                    checked: true
-                                }
-                            }
-                            
-                            RowLayout {
-                                spacing: 8  // 添加间距
-                                
-                                Text {
-                                    text: "插件安装路径:"
-                                    font.pixelSize: 14
-                                    color: "#333333"
-                                    Layout.preferredWidth: 100
-                                }
-                                
-                                TextField {
-                                    id: pluginPathField
-                                    text: "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\plugins"
-                                    Layout.fillWidth: true
-                                }
-                                
-                                Button {
-                                    text: "浏览"
-                                    width: 60
-                                    onClicked: {
-                                        // TODO: 实现文件夹选择
-                                        console.log("选择插件安装路径")
-                                    }
-                                }
-                            }
-                            
-                            RowLayout {
-                                CheckBox {
-                                    id: debugModeCheckBox
-                                    text: "启用调试模式"
-                                    checked: false
-                                }
-                            }
-                            
-                            RowLayout {
-                                CheckBox {
-                                    id: autoUpdateCheckBox
-                                    text: "自动下载插件更新"
-                                    checked: true
-                                }
-                            }
-                            
-                            RowLayout {
-                                spacing: 8  // 添加间距
-                                
-                                Text {
-                                    text: "插件超时时间:"
-                                    font.pixelSize: 14
-                                    color: "#333333"
-                                    Layout.preferredWidth: 100
-                                }
-                                
-                                SpinBox {
-                                    from: 5
-                                    to: 60
-                                    value: 30
-                                    Layout.fillWidth: true
-                                }
-                                
-                                Text {
-                                    text: " 秒"
-                                    font.pixelSize: 12
-                                    color: "#666666"
-                                    Layout.preferredWidth: 30
-                                }
-                            }
+                        onMirrorHeightChanged: {
+                            // 触发ListView重新计算内容高度
+                            Qt.callLater(function() {
+                                settingsListView.forceLayout()
+                            })
                         }
                     }
                 }
@@ -592,8 +390,10 @@ ApplicationWindow {
                     highlighted: true
                     
                     onClicked: {
-                        // TODO: 保存设置
                         console.log("应用设置")
+                        if (configBridge) {
+                            configBridge.saveConfig()
+                        }
                         settingsWindow.close()
                     }
                 }
@@ -605,12 +405,45 @@ ApplicationWindow {
                     highlighted: true
                     
                     onClicked: {
-                        // TODO: 保存设置
                         console.log("保存设置")
+                        if (configBridge) {
+                            configBridge.saveConfig()
+                        }
                         settingsWindow.close()
                     }
                 }
             }
+        }
+    }
+    
+    // JavaScript函数
+    function installPackage(envName, packageName) {
+        console.log("安装包:", packageName, "到环境:", envName)
+        var result = configBridge ? configBridge.installPackage(envName, packageName) : false
+        if (result) {
+            console.log("包安装请求已发送")
+        } else {
+            console.log("包安装失败")
+        }
+    }
+    
+    function uninstallPackage(envName, packageName) {
+        console.log("卸载包:", packageName, "从环境:", envName)
+        var result = configBridge ? configBridge.uninstallPackage(envName, packageName) : false
+        if (result) {
+            console.log("包卸载请求已发送")
+        } else {
+            console.log("包卸载失败")
+        }
+    }
+    
+    function syncEnvironment(envName) {
+        console.log("同步环境依赖:", envName)
+        var result = configBridge ? configBridge.syncEnvironment(envName) : false
+        if (result) {
+            console.log("环境同步请求已发送")
+        } else {
+            console.log("环境同步失败")
         }
     }
 }

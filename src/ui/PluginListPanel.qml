@@ -16,6 +16,7 @@ Rectangle {
     // 属性
     property alias pluginList: pluginListModel
     property string selectedPlugin: ""
+    property string searchText: ""
     
     ColumnLayout {
         anchors.fill: parent
@@ -72,15 +73,64 @@ Rectangle {
                 }
                 
                 TextInput {
+                    id: searchInput
                     Layout.fillWidth: true
-                    text: "搜索插件..."
-                    color: "#666666"
+                    text: root.searchText === "" ? searchInput.placeholderText : root.searchText
+                    color: root.searchText === "" ? "#666666" : "#333333"
                     font.pixelSize: 14
                     selectByMouse: true
                     
+                    // 占位符文本
+                    property string placeholderText: "搜索插件..."
+                    
                     onTextChanged: {
-                        // 实现搜索功能
-                        filterPlugins(text)
+                        // 只有当文本不是占位符时才进行搜索
+                        if (text !== placeholderText) {
+                            root.searchText = text
+                            filterPlugins(text)
+                        }
+                    }
+                    
+                    // 当获得焦点时清空占位符
+                    onActiveFocusChanged: {
+                        if (activeFocus && text === placeholderText) {
+                            text = ""
+                        } else if (!activeFocus && text === "") {
+                            text = placeholderText
+                        }
+                    }
+                    
+                    // 初始状态显示占位符
+                    Component.onCompleted: {
+                        if (text === "") {
+                            text = placeholderText
+                        }
+                    }
+                }
+                
+                // 清空搜索按钮
+                Rectangle {
+                    width: 20
+                    height: 20
+                    radius: 10
+                    color: "#e0e0e0"
+                    visible: root.searchText !== "" && root.searchText !== "搜索插件..."
+                    
+                    Text {
+                        anchors.centerIn: parent
+                        text: "✕"
+                        font.pixelSize: 12
+                        color: "#666666"
+                    }
+                    
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            root.searchText = ""
+                            searchInput.text = ""
+                            searchInput.focus = false  // 移除焦点以触发占位符逻辑
+                            filterPlugins("")
+                        }
                     }
                 }
             }
@@ -216,6 +266,73 @@ Rectangle {
                 policy: ScrollBar.AlwaysOff  // 隐藏默认滚动条
             }
             
+            // 原始插件数据模型
+            ListModel {
+                id: pluginListModel
+                
+                // 示例数据
+                ListElement {
+                    name: "Chrome Extension Tools"
+                    status: "running"
+                    icon: "🔧"
+                }
+                ListElement {
+                    name: "Figma Plugin SDK"
+                    status: "stopped"
+                    icon: "⚡"
+                }
+                ListElement {
+                    name: "Data Visualization"
+                    status: "running"
+                    icon: "📊"
+                }
+                ListElement {
+                    name: "Package Manager"
+                    status: "error"
+                    icon: "📦"
+                }
+                ListElement {
+                    name: "VSCode Extension Manager"
+                    status: "running"
+                    icon: "💻"
+                }
+                ListElement {
+                    name: "Webpack Bundle Analyzer"
+                    status: "stopped"
+                    icon: "📊"
+                }
+                ListElement {
+                    name: "ESLint Configuration"
+                    status: "running"
+                    icon: "🔍"
+                }
+                ListElement {
+                    name: "Prettier Code Formatter"
+                    status: "stopped"
+                    icon: "✨"
+                }
+                ListElement {
+                    name: "Git Integration"
+                    status: "running"
+                    icon: "🌿"
+                }
+                ListElement {
+                    name: "Docker Container Manager"
+                    status: "error"
+                    icon: "🐳"
+                }
+                ListElement {
+                    name: "API Testing Suite"
+                    status: "stopped"
+                    icon: "🔗"
+                }
+            }
+            
+            // 过滤后的插件模型
+            ListModel {
+                id: filteredPluginModel
+            }
+            
             ListView {
                 id: pluginListView
                 anchors.fill: parent
@@ -223,84 +340,13 @@ Rectangle {
                 spacing: 8
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
-                model: ListModel {
-                    id: pluginListModel
-                    
-                    // 示例数据
-                    ListElement {
-                        name: "Chrome Extension Tools"
-                        description: "Chrome浏览器扩展开发和调试工具, 提供实时监控和性能分析"
-                        status: "running"
-                        icon: "🔧"
-                    }
-                    ListElement {
-                        name: "Figma Plugin SDK"
-                        description: "Figma插件开发SDK, 包含完整的API文档和示例代码"
-                        status: "stopped"
-                        icon: "⚡"
-                    }
-                    ListElement {
-                        name: "Data Visualization"
-                        description: "数据可视化工具集, 支持多种图表类型和交互式分析"
-                        status: "running"
-                        icon: "📊"
-                    }
-                    ListElement {
-                        name: "Package Manager"
-                        description: "智能包管理器, 自动处理依赖关系和版本冲突"
-                        status: "error"
-                        icon: "📦"
-                    }
-                    ListElement {
-                        name: "VSCode Extension Manager"
-                        description: "管理和同步Visual Studio Code扩展,支持多设备同步和批量管理功能"
-                        status: "running"
-                        icon: "💻"
-                    }
-                    ListElement {
-                        name: "Webpack Bundle Analyzer"
-                        description: "分析Webpack打包结果,可视化展示bundle大小和依赖关系"
-                        status: "stopped"
-                        icon: "📊"
-                    }
-                    ListElement {
-                        name: "ESLint Configuration"
-                        description: "JavaScript代码质量检查工具,提供实时错误检测和修复建议"
-                        status: "running"
-                        icon: "🔍"
-                    }
-                    ListElement {
-                        name: "Prettier Code Formatter"
-                        description: "代码格式化工具,支持多种编程语言的自动格式化"
-                        status: "stopped"
-                        icon: "✨"
-                    }
-                    ListElement {
-                        name: "Git Integration"
-                        description: "Git版本控制集成工具,提供可视化的代码版本管理"
-                        status: "running"
-                        icon: "🌿"
-                    }
-                    ListElement {
-                        name: "Docker Container Manager"
-                        description: "Docker容器管理工具,简化容器生命周期管理"
-                        status: "error"
-                        icon: "🐳"
-                    }
-                    ListElement {
-                        name: "API Testing Suite"
-                        description: "RESTful API测试工具集,支持自动化测试和性能监控"
-                        status: "stopped"
-                        icon: "🔗"
-                    }
-                }
+                model: filteredPluginModel
                 
             delegate: PluginItem {
                 width: pluginListView.width
                 height: 70
                     
                     pluginName: model.name
-                    pluginDescription: model.description
                     pluginStatus: model.status
                     pluginIcon: model.icon
                     isSelected: root.selectedPlugin === model.name
@@ -328,8 +374,49 @@ Rectangle {
     
     // 搜索过滤函数
     function filterPlugins(searchText) {
-        // 这里可以实现搜索过滤逻辑
         console.log("搜索:", searchText)
+        
+        // 清空过滤模型
+        filteredPluginModel.clear()
+        
+        // 如果搜索文本为空或为占位符，显示所有插件
+        if (searchText === "" || searchText === "搜索插件...") {
+            // 复制所有插件到过滤模型
+            for (var i = 0; i < pluginListModel.count; i++) {
+                var plugin = pluginListModel.get(i)
+                filteredPluginModel.append({
+                    name: plugin.name,
+                    description: plugin.description,
+                    status: plugin.status,
+                    icon: plugin.icon
+                })
+            }
+        } else {
+            // 根据搜索文本过滤插件
+            var searchLower = searchText.toLowerCase()
+            for (var i = 0; i < pluginListModel.count; i++) {
+                var plugin = pluginListModel.get(i)
+                var nameLower = plugin.name.toLowerCase()
+                var descLower = plugin.description.toLowerCase()
+                
+                // 检查插件名称或描述是否包含搜索文本
+                if (nameLower.indexOf(searchLower) !== -1 || descLower.indexOf(searchLower) !== -1) {
+                    filteredPluginModel.append({
+                        name: plugin.name,
+                        description: plugin.description,
+                        status: plugin.status,
+                        icon: plugin.icon
+                    })
+                }
+            }
+        }
+        
+        console.log("过滤后插件数量:", filteredPluginModel.count)
+    }
+    
+    // 初始化时显示所有插件
+    Component.onCompleted: {
+        filterPlugins("")
     }
 }
 

@@ -24,7 +24,7 @@ current_path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\
 current_python_version = "Python 3.11.13"
 [[environments.scanned_environments]]
 created_time = 1759569091.2562144
-is_active = false
+is_active = true
 name = "test-ui-env"
 packages_count = 0
 path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\envs\\test-ui-env"

@@ -1,12 +1,13 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import ConfigBridge 1.0
 
 ApplicationWindow {
     id: mainWindow
-    title: "插件聚合器"
-    width: Screen.width * 0.8
-    height: Screen.height * 0.7
+    title: (configBridge ? configBridge.appName : "Tuleaj Plugin Aggregator") + " v" + (configBridge ? configBridge.appVersion : "1.0.0")
+    width: Math.min(1200, Screen.width * 0.8)
+    height: Math.min(800, Screen.height * 0.7)
     visible: true
     
     // 设置窗口属性
@@ -15,8 +16,23 @@ ApplicationWindow {
 
     // 窗口居中
     Component.onCompleted: {
+        console.log("QML主窗口组件加载完成")
         mainWindow.x = (Screen.width - mainWindow.width) / 2
         mainWindow.y = (Screen.height - mainWindow.height) / 2
+        
+        // 连接配置桥接器信号
+        if (configBridge) {
+            console.log("configBridge可用，连接信号")
+            configBridge.configError.connect(function(errorMessage) {
+                console.log("配置错误:", errorMessage)
+            })
+            
+            configBridge.configSaved.connect(function() {
+                console.log("配置已保存")
+            })
+        } else {
+            console.log("configBridge不可用")
+        }
     }
     
     // 主背景色
