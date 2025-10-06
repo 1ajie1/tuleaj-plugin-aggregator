@@ -8,4 +8,6 @@ dependencies = [
     "markdown>=3.9",
     "pyside6>=6.9.3",
     "toml>=0.10.2",
+    "packaging>=21.0",
 ]
+

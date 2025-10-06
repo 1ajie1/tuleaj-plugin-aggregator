@@ -69,24 +69,7 @@ ApplicationWindow {
                 console.log("当前环境切换为:", envName)
             })
             
-            // 连接消息提示信号
-            configBridge.showSuccessMessageSignal.connect(function(title, content, duration) {
-                messageManager.showSuccess(title, content, duration)
-            })
-            
-            configBridge.showErrorMessageSignal.connect(function(title, content, duration) {
-                messageManager.showError(title, content, duration)
-            })
-            
-            configBridge.showWarningMessageSignal.connect(function(title, content, duration) {
-                messageManager.showWarning(title, content, duration)
-            })
-            
-            configBridge.showInfoMessageSignal.connect(function(title, content, duration) {
-                messageManager.showInfo(title, content, duration)
-            })
-            
-            // 连接通用消息信号
+            // 连接统一消息信号
             configBridge.showMessageSignal.connect(function(messageType, title, content, duration) {
                 if (messageType === "success") {
                     messageManager.showSuccess(title, content, duration)

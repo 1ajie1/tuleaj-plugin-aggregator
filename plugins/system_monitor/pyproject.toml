@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "system-monitor"
+version = "1.0.0"
+description = "实时监控 CPU、内存和网络速度的系统监控插件"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "psutil>=7.1.0",
+    "pyside6>=6.9.3",
+]
+
+# 插件信息 - 主程序读取
+[plugin-metadata]
+name = "系统监控"
+version = "1.0.0"
+author = "Tuleaj"
+icon = "🖥️"
+entry_point = "main.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+include = [
+    "*.py",
+    "*.qml",
+    "*.md",
+    "pyproject.toml",
+    "plugin.ini"
+]
+

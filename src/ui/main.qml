@@ -63,7 +63,7 @@ ApplicationWindow {
             if (item) {
                 item.fileSelected.connect(function(filePath) {
                     console.log("选择的文件:", filePath)
-                    showMessage("插件安装", "正在安装插件: " + filePath)
+                    showInfoMessage("插件安装", "正在安装插件: " + filePath, 3000)
                 })
                 item.cancelled.connect(function() {
                     console.log("取消选择文件")
@@ -72,10 +72,33 @@ ApplicationWindow {
         }
     }
     
+    // 消息管理器
+    MessageManager {
+        id: messageManager
+        anchors.fill: parent
+    }
+    
     // 消息提示函数
-    function showMessage(title, message) {
-        // 简单的消息提示，可以后续优化为更好的通知组件
+    function showMessage(title, message, type, duration) {
         console.log(title + ":", message)
+        messageManager.addMessage(type || "info", title, message, duration || 3000)
+    }
+    
+    // 便捷的消息显示函数
+    function showSuccessMessage(title, message, duration) {
+        messageManager.showSuccess(title, message, duration || 3000)
+    }
+    
+    function showErrorMessage(title, message, duration) {
+        messageManager.showError(title, message, duration || 5000)
+    }
+    
+    function showWarningMessage(title, message, duration) {
+        messageManager.showWarning(title, message, duration || 4000)
+    }
+    
+    function showInfoMessage(title, message, duration) {
+        messageManager.showInfo(title, message, duration || 3000)
     }
     
     // 显示设置窗口
@@ -108,24 +131,28 @@ ApplicationWindow {
                 id: pluginPanel
                 Layout.preferredWidth: 300
                 Layout.fillHeight: true
+                messageManager: messageManager
                 
                 onPluginSelected: function(pluginName) {
                     documentViewer.loadPluginDocument(pluginName)
                 }
                 
                 onPluginStartRequested: function(pluginName) {
-                    console.log("启动插件:", pluginName)
-                    // TODO: 实现插件启动逻辑
+                    console.log("主窗口收到启动插件请求:", pluginName)
+                    // 只显示操作开始的通知，结果由状态变化通知处理
+                    showInfoMessage("正在启动", pluginName + " 正在启动中...", 1500)
                 }
                 
                 onPluginStopRequested: function(pluginName) {
-                    console.log("停止插件:", pluginName)
-                    // TODO: 实现插件停止逻辑
+                    console.log("主窗口收到停止插件请求:", pluginName)
+                    // 只显示操作开始的通知，结果由状态变化通知处理
+                    showInfoMessage("正在停止", pluginName + " 正在停止中...", 1500)
                 }
                 
                 onPluginUninstallRequested: function(pluginName) {
-                    console.log("卸载插件:", pluginName)
-                    // TODO: 实现插件卸载逻辑
+                    console.log("主窗口收到卸载插件请求:", pluginName)
+                    // 卸载操作需要特殊处理，因为会直接移除插件
+                    showWarningMessage("正在卸载", pluginName + " 正在卸载中...", 2000)
                 }
             }
             

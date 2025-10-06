@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # 导入核心模块
 from core.config_bridge import ConfigBridge, register_qml_types
+from core.plugin_bridge import register_types as register_plugin_types
 from utils.logger import Logger
 from utils.exception_handler import ExceptionHandler, set_global_exception_handler
 
@@ -39,6 +40,7 @@ class MainApplication:
         
         # 注册QML类型
         register_qml_types()
+        register_plugin_types()
         
         # 创建QML引擎
         self.engine = QQmlApplicationEngine()

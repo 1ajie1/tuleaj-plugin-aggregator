@@ -22,6 +22,7 @@ Rectangle {
     property color statusColor: {
         switch(pluginStatus) {
             case "running": return "#4CAF50"
+            case "starting": return "#FF9800"
             case "stopped": return "#9E9E9E"
             case "error": return "#F44336"
             default: return "#9E9E9E"
@@ -31,6 +32,7 @@ Rectangle {
     property string statusText: {
         switch(pluginStatus) {
             case "running": return "运行中"
+            case "starting": return "启动中"
             case "stopped": return "已停止"
             case "error": return "错误"
             default: return "未知"

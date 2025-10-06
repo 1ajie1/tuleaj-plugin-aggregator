@@ -42,12 +42,7 @@ class ConfigManager(QObject):
                 "author": "Tuleaj"
             },
             "ui": {
-                "theme": "light",
-                "language": "zh_CN",
-                "window_width": 1200,
-                "window_height": 800,
-                "window_maximized": False,
-                "remember_window_state": True
+                "theme": "auto"
             },
             "environments": {
                 "default": "python3.11",
@@ -63,11 +58,9 @@ class ConfigManager(QObject):
                 "enabled": True,
                 "default_source": "pypi",
                 "sources": [
-                    {"name": "pypi", "url": "https://pypi.org/simple/", "priority": 1},
-                    {"name": "tsinghua", "url": "https://pypi.tuna.tsinghua.edu.cn/simple/", "priority": 2},
-                    {"name": "aliyun", "url": "https://mirrors.aliyun.com/pypi/simple/", "priority": 3},
-                    {"name": "douban", "url": "https://pypi.douban.com/simple/", "priority": 4},
-                    {"name": "ustc", "url": "https://pypi.mirrors.ustc.edu.cn/simple/", "priority": 5}
+                    {"name": "pypi", "url": "https://pypi.org/simple/", "priority": 1, "enabled": True},
+                    {"name": "tsinghua", "url": "https://pypi.tuna.tsinghua.edu.cn/simple/", "priority": 2, "enabled": True},
+                    {"name": "aliyun", "url": "https://mirrors.aliyun.com/pypi/simple/", "priority": 3, "enabled": True}
                 ],
                 "timeout_seconds": 30,
                 "retry_count": 3,
@@ -220,11 +213,6 @@ class ConfigManager(QObject):
             if not isinstance(app_config.get("name"), str):
                 return False
             
-            # 验证日志级别
-            log_level = app_config.get("log_level", "INFO")
-            if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
-                return False
-            
             # 验证环境配置
             env_config = self.config.get("environments", {})
             if not isinstance(env_config.get("available"), list):
@@ -236,9 +224,11 @@ class ConfigManager(QObject):
                 return False
             
             for source in mirror_config.get("sources", []):
-                if not all(key in source for key in ["name", "url", "priority"]):
+                if not all(key in source for key in ["name", "url", "priority", "enabled"]):
                     return False
                 if not isinstance(source["priority"], int) or source["priority"] < 1:
+                    return False
+                if not isinstance(source["enabled"], bool):
                     return False
             
             # 验证插件配置
@@ -271,7 +261,8 @@ class ConfigManager(QObject):
         new_source = {
             "name": name,
             "url": url,
-            "priority": priority
+            "priority": priority,
+            "enabled": True  # 默认启用
         }
         sources.append(new_source)
         
@@ -436,13 +427,12 @@ class ConfigManager(QObject):
     # UI配置方法
     def get_theme(self) -> str:
         """获取主题"""
-        return self.get("ui.theme", "light")
+        return self.get("ui.theme", "auto")
     
     def get_window_size(self) -> tuple:
-        """获取窗口大小"""
-        width = self.get("ui.window_width", 1200)
-        height = self.get("ui.window_height", 800)
-        return (width, height)
+        """获取窗口大小（已移除，保留接口兼容性）"""
+        # 窗口大小配置已移除，返回默认值
+        return (1200, 800)
     
     def get_default_environment(self) -> str:
         """获取默认环境"""
@@ -470,12 +460,8 @@ class ConfigManager(QObject):
     
     @config_handle_exceptions(context="设置窗口大小", show_dialog=False, log_level="WARNING", return_value=False)
     def set_window_size(self, width: int, height: int) -> bool:
-        """设置窗口大小"""
-        if width < 800 or height < 600:
-            self.config_error.emit("窗口大小不能小于 800x600")
-            return False
-        self.set("ui.window_width", width)
-        self.set("ui.window_height", height)
+        """设置窗口大小（已移除，保留接口兼容性）"""
+        # 窗口大小配置已移除，此方法保留用于兼容性
         return True
     
     # 高级配置方法

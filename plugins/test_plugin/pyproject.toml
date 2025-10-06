@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "test-plugin"
+version = "1.0.0"
+description = "用于测试插件管理功能的简单插件"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyside6>=6.9.3",
+]
+
+# 插件信息 - 主程序读取
+[plugin-metadata]
+name = "测试插件"
+version = "1.0.0"
+author = "Tuleaj"
+icon = "🧪"
+entry_point = "main.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+include = [
+    "*.py",
+    "*.qml",
+    "*.md",
+    "pyproject.toml"
+]

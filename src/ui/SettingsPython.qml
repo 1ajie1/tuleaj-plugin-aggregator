@@ -361,12 +361,7 @@ Rectangle {
     function showEnvironmentManagement() {
         console.log("显示环境管理")
         
-        // 先刷新环境列表，确保获取最新信息
-        if (configBridge) {
-            configBridge.refreshEnvironments()
-        }
-        
-        // 获取所有可用环境
+        // 获取所有可用环境（不需要重复刷新，因为启动时已经扫描过了）
         var environments = configBridge ? configBridge.environmentsList : []
         console.log("可用环境:", environments.length, "个")
         

@@ -24,6 +24,8 @@ Rectangle {
     // 获取插件描述
     function getPluginDescription(pluginName) {
         switch(pluginName) {
+            case "系统监控":
+                return "实时系统监控工具, 显示CPU、内存使用情况和系统状态"
             case "Chrome Extension Tools":
                 return "Chrome浏览器扩展开发和调试工具, 提供实时监控和性能分析"
             case "Figma Plugin SDK":
@@ -40,6 +42,38 @@ Rectangle {
     // 获取插件文档内容
     function getPluginDocument(pluginName) {
         switch(pluginName) {
+            case "系统监控":
+                var doc = "# 系统监控插件\n\n## 功能概述\n\n"
+                doc += "系统监控插件是一个实时系统资源监控工具，提供直观的CPU和内存使用情况显示。\n\n"
+                doc += "## 主要功能\n\n### CPU 监控\n"
+                doc += "- **实时CPU使用率**: 显示当前CPU使用百分比\n"
+                doc += "- **动态进度条**: 直观的可视化显示\n"
+                doc += "- **实时更新**: 持续监控CPU状态变化\n\n"
+                doc += "### 内存监控\n"
+                doc += "- **内存使用率**: 显示当前内存使用百分比\n"
+                doc += "- **总内存信息**: 显示系统总内存容量\n"
+                doc += "- **已用内存**: 显示当前已使用的内存量\n"
+                doc += "- **可视化显示**: 通过进度条直观展示内存使用情况\n\n"
+                doc += "## 技术特性\n\n"
+                doc += "- **轻量级**: 占用系统资源极少\n"
+                doc += "- **实时性**: 毫秒级数据更新\n"
+                doc += "- **跨平台**: 支持Windows、macOS、Linux\n"
+                doc += "- **用户友好**: 简洁直观的界面设计\n\n"
+                doc += "## 使用方法\n\n"
+                doc += "1. 在插件列表中点击\"启动\"按钮\n"
+                doc += "2. 系统监控窗口将自动打开\n"
+                doc += "3. 实时查看CPU和内存使用情况\n"
+                doc += "4. 点击窗口关闭按钮停止监控\n\n"
+                doc += "## 系统要求\n\n"
+                doc += "- Python 3.11+\n"
+                doc += "- PySide6\n"
+                doc += "- psutil (系统信息获取)\n\n"
+                doc += "## 注意事项\n\n"
+                doc += "- 监控数据每100毫秒更新一次\n"
+                doc += "- 关闭监控窗口不会停止插件运行\n"
+                doc += "- 需要在主应用中点击\"停止\"按钮完全停止插件"
+                return doc
+            
             case "Figma Plugin SDK":
                 return "# 构建强大的Figma插件\n\n## SDK概述\n\nFigma Plugin SDK 是一个强大的开发工具包，为开发者提供了创建功能丰富、交互性强的Figma插件的完整解决方案。\n\n## 核心功能\n\n### 节点操作\n- **选择节点**: 精确选择和操作Figma设计元素\n- **创建节点**: 动态创建各种UI组件\n- **修改属性**: 实时修改节点属性和样式\n\n### API集成\n- **RESTful API**: 完整的REST API接口\n- **WebSocket支持**: 实时数据同步\n- **认证系统**: 安全的用户认证机制\n\n### 开发工具\n- **调试器**: 内置调试工具，支持断点调试\n- **性能监控**: 实时性能分析和优化建议\n- **代码提示**: 智能代码补全和语法检查\n\n## 快速开始\n\n1. 安装SDK\n2. 创建新项目\n3. 配置开发环境\n4. 开始编码\n\n## 示例代码\n\n```javascript\n// 创建新节点\nconst newNode = figma.createRectangle();\nnewNode.resize(100, 100);\nnewNode.fills = [{type: 'SOLID', color: {r: 1, g: 0, b: 0}}];\n```\n\n## 最佳实践\n\n- 遵循Figma设计规范\n- 优化插件性能\n- 提供良好的用户体验\n- 完善的错误处理机制"
             

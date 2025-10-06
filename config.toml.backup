@@ -3,50 +3,39 @@ name = "Tuleaj Plugin Aggregator"
 version = "1.0.0"
 description = "PySide6 QML 插件聚合工具"
 author = "Tuleaj"
-log_level = "INFO"
-log_dir = "logs"
-max_log_files = 10
-log_file_size_mb = 10
 
 [ui]
 theme = "auto"
-language = "zh_CN"
-window_width = 1200
-window_height = 800
-window_maximized = false
-remember_window_state = true
 
 [environments]
 default = "python3.11"
 available = [ "python3.11", "python3.12",]
-current = "test-ui-env"
-current_path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\envs\\test-ui-env"
+current = "test"
+current_path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\envs\\test"
 current_python_version = "Python 3.11.13"
 [[environments.scanned_environments]]
-created_time = 1759569091.2562144
+created_time = 1759726185.017113
 is_active = true
-name = "test-ui-env"
-packages_count = 0
-path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\envs\\test-ui-env"
+name = "test"
+packages_count = 6
+path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\envs\\test"
 python_version = "Python 3.11.13"
-size_mb = 0.52
+size_mb = 609.34
 
 [[environments.scanned_environments]]
-created_time = 1759633268.4720833
+created_time = 1759739053.8794825
 is_active = false
-name = "wwf"
+name = "test2"
 packages_count = 0
-path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\envs\\wwf"
-python_version = "Python 3.9.23"
-size_mb = 1.2
+path = "C:\\Users\\tulea\\Desktop\\tmp\\code\\tuleaj-plugin-aggregator\\envs\\test2"
+python_version = "Python 3.11.13"
+size_mb = 0.52
 
 [plugins]
 directory = "plugins"
 auto_scan = true
 plugin_timeout_seconds = 30
-[[plugins.installed_plugins]]
-name = "example_plugin"
-environment = "python3.11"
+installed_plugins = []
 
 [mirrors]
 enabled = true
@@ -58,13 +47,13 @@ verify_ssl = true
 name = "pypi"
 url = "https://pypi.org/simple/"
 priority = 1
-enabled = true
+enabled = false
 
 [[mirrors.sources]]
 name = "tsinghua"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
 priority = 2
-enabled = false
+enabled = true
 
 [[mirrors.sources]]
 name = "aliyun"
@@ -85,7 +74,14 @@ max_log_files = 10
 log_file_size_mb = 10
 
 [advanced]
-debug_mode = true
+debug_mode = false
 enable_metrics = true
 metrics_retention_days = 30
 enable_telemetry = false
+
+[dependencies]
+lazy_loading_enabled = true
+install_timeout_seconds = 300
+show_install_progress = true
+version_resolution_strategy = "strict"
+auto_cleanup_unused = false

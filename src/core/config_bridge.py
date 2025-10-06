@@ -52,14 +52,21 @@ class PythonEnvironmentWorker(QThread):
     def run(self):
         """线程主循环"""
         try:
-            self.refresh_environments()
+            # 检查是否需要扫描环境（如果父对象已经有环境信息，就不需要重复扫描）
+            if hasattr(self.parent(), '_environments_cache') and self.parent()._environments_cache:
+                self.logger.info("环境信息已从配置文件加载，跳过重复扫描")
+                # 直接发送已加载的环境信息
+                self.environmentListUpdated.emit(self.parent()._environments_cache)
+            else:
+                self.logger.info("配置文件没有环境信息，开始扫描环境")
+                self.refresh_environments()
         except Exception as e:
             self.logger.error(f"环境工作线程启动时发生错误: {str(e)}")
             # 即使出错也要发送空列表，避免前端卡住
             self.environmentListUpdated.emit([])
     
     def create_environment(self, env_name: str, python_version: str = "3.11", timeout_seconds: int = 60):
-        """使用uv创建虚拟环境"""
+        """使用uv init创建项目环境"""
         try:
             env_path = self.environments_dir / env_name
             
@@ -67,30 +74,78 @@ class PythonEnvironmentWorker(QThread):
                 self.environmentCreated.emit(env_name, False, f"环境 '{env_name}' 已存在")
                 return
             
-            # 使用uv创建虚拟环境
-            cmd = ["uv", "venv", str(env_path), "--python", f"{python_version}"]
+            # 创建环境目录
+            env_path.mkdir(parents=True, exist_ok=True)
+            self.logger.info(f"创建环境目录: {env_path}")
+            
+            # 创建 pyproject.toml 文件来管理环境
             try:
                 self.logger.info(f"开始创建环境 {env_name}，超时时间: {timeout_seconds} 秒")
-                subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout_seconds)
+                
+                # 检查 uv 是否可用
+                try:
+                    uv_check = subprocess.run(["uv", "--version"], capture_output=True, text=True, timeout=10, encoding='utf-8', errors='ignore')
+                    self.logger.info(f"uv 版本检查: {uv_check.stdout.strip()}")
+                except Exception as e:
+                    self.logger.error(f"uv 命令检查失败: {str(e)}")
+                    self.environmentCreated.emit(env_name, False, f"uv 命令不可用: {str(e)}")
+                    return
+                
+                # 创建 pyproject.toml 文件
+                pyproject_content = f'''[project]
+name = "{env_name}"
+version = "0.1.0"
+description = "Virtual environment for {env_name}"
+requires-python = ">={python_version}"
+
+[tool.uv]
+dev-dependencies = []
+'''
+                
+                pyproject_path = env_path / "pyproject.toml"
+                with open(pyproject_path, 'w', encoding='utf-8') as f:
+                    f.write(pyproject_content)
+                
+                self.logger.info(f"创建 pyproject.toml 文件: {pyproject_path}")
+                
+                # 使用 uv venv 来创建虚拟环境（这会直接创建 .venv 目录）
+                cmd = ["uv", "venv", "--python", f"{python_version}"]
+                self.logger.info(f"执行命令: {' '.join(cmd)}")
+                self.logger.info(f"工作目录: {env_path}")
+                
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True, 
+                                      timeout=timeout_seconds, cwd=str(env_path), encoding='utf-8', errors='ignore')
+                self.logger.info(f"uv venv 输出: {result.stdout}")
+                if result.stderr:
+                    self.logger.info(f"uv venv 错误输出: {result.stderr}")
+                    
             except subprocess.TimeoutExpired:
                 self.logger.error(f"环境创建超时: {env_name}，超时时间: {timeout_seconds} 秒")
                 self.environmentCreated.emit(env_name, False, f"环境创建超时（{timeout_seconds}秒），请检查网络连接或重试")
                 return
             except subprocess.CalledProcessError as e:
                 self.logger.error(f"环境创建失败: {env_name}，错误: {str(e)}")
+                self.logger.error(f"错误输出: {e.stderr}")
                 self.environmentCreated.emit(env_name, False, f"环境创建失败: {str(e)}")
+                return
+            
+            # 检查 .venv 目录是否创建成功
+            venv_path = env_path / ".venv"
+            if not venv_path.exists():
+                self.logger.error(f".venv 目录未创建: {venv_path}")
+                self.environmentCreated.emit(env_name, False, "虚拟环境目录创建失败")
                 return
             
             # 获取Python可执行文件路径
             if os.name == 'nt':  # Windows
-                python_exe = env_path / "Scripts" / "python.exe"
+                python_exe = venv_path / "Scripts" / "python.exe"
             else:  # Unix/Linux
-                python_exe = env_path / "bin" / "python"
+                python_exe = venv_path / "bin" / "python"
             
             # 获取Python版本信息
             try:
                 version_result = subprocess.run([str(python_exe), "--version"], 
-                                              capture_output=True, text=True, check=True, timeout=30)
+                                              capture_output=True, text=True, check=True, timeout=30, encoding='utf-8', errors='ignore')
                 python_version_info = version_result.stdout.strip()
             except subprocess.TimeoutExpired:
                 self.environmentCreated.emit(env_name, False, "获取Python版本信息超时")
@@ -163,13 +218,24 @@ class PythonEnvironmentWorker(QThread):
             self.logger.warning(f"环境路径不存在: {env_path}")
             return None
         
-        # 获取Python可执行文件路径
-        if os.name == 'nt':  # Windows
-            python_exe = env_path / "Scripts" / "python.exe"
-            pip_exe = env_path / "Scripts" / "pip.exe"
-        else:  # Unix/Linux
-            python_exe = env_path / "bin" / "python"
-            pip_exe = env_path / "bin" / "pip"
+        # 检查是否是 uv init 创建的环境（有 .venv 目录）
+        venv_path = env_path / ".venv"
+        if venv_path.exists():
+            # uv init 创建的环境
+            if os.name == 'nt':  # Windows
+                python_exe = venv_path / "Scripts" / "python.exe"
+                pip_exe = venv_path / "Scripts" / "pip.exe"
+            else:  # Unix/Linux
+                python_exe = venv_path / "bin" / "python"
+                pip_exe = venv_path / "bin" / "pip"
+        else:
+            # 传统的 venv 创建的环境
+            if os.name == 'nt':  # Windows
+                python_exe = env_path / "Scripts" / "python.exe"
+                pip_exe = env_path / "Scripts" / "pip.exe"
+            else:  # Unix/Linux
+                python_exe = env_path / "bin" / "python"
+                pip_exe = env_path / "bin" / "pip"
         
         if not python_exe.exists():
             self.logger.warning(f"Python可执行文件不存在: {python_exe}")
@@ -190,7 +256,7 @@ class PythonEnvironmentWorker(QThread):
         try:
             # 使用uv pip list获取包列表
             uv_cmd = ["uv", "pip", "list", "--python", str(python_exe)]
-            result = subprocess.run(uv_cmd, capture_output=True, text=True, check=True, timeout=30)
+            result = subprocess.run(uv_cmd, capture_output=True, text=True, check=True, timeout=30, encoding='utf-8', errors='replace')
             
             # 解析uv pip list的输出
             lines = result.stdout.strip().split('\n')
@@ -226,6 +292,12 @@ class PythonEnvironmentWorker(QThread):
             self.logger.warning(f"计算环境大小时发生错误: {str(e)}")
             total_size = 0
         
+        # 检查是否为当前环境
+        # 通过父对象（ConfigBridge）获取当前环境名称
+        current_env_name = ""
+        if hasattr(self.parent(), 'currentEnvironmentName'):
+            current_env_name = self.parent().currentEnvironmentName
+        
         env_info = {
             "name": env_name,
             "path": str(env_path),
@@ -233,7 +305,7 @@ class PythonEnvironmentWorker(QThread):
             "packages_count": len(packages),
             "size_mb": round(total_size / (1024 * 1024), 2),
             "created_time": env_path.stat().st_ctime,
-            "is_active": False  # 这里可以添加当前激活状态的检测
+            "is_active": env_name == current_env_name
         }
         
         self.logger.info(f"构建环境信息: {env_info}")
@@ -245,7 +317,7 @@ class ConfigBridge(QObject):
     
     # 信号定义
     configLoaded = Signal()
-    configSaved = Signal()
+    configSaved = Signal() 
     configError = Signal(str)  # 错误信息
     mirrorSourceAdded = Signal(str, str, int)  # 名称, URL, 优先级
     mirrorSourceRemoved = Signal(str)
@@ -260,12 +332,8 @@ class ConfigBridge(QObject):
     environmentsListChanged = Signal()  # 环境列表变化
     currentEnvironmentChanged = Signal(str)  # 当前环境变化
     
-    # 消息提示信号
+    # 统一消息提示信号
     showMessageSignal = Signal(str, str, str, int)  # 类型, 标题, 内容, 持续时间
-    showSuccessMessageSignal = Signal(str, str, int)  # 标题, 内容, 持续时间
-    showErrorMessageSignal = Signal(str, str, int)  # 标题, 内容, 持续时间
-    showWarningMessageSignal = Signal(str, str, int)  # 标题, 内容, 持续时间
-    showInfoMessageSignal = Signal(str, str, int)  # 标题, 内容, 持续时间
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -307,10 +375,9 @@ class ConfigBridge(QObject):
         # 镜像源列表缓存
         self._mirror_sources_cache = self.config_manager.get("mirrors.sources", [])
         
-        # 从配置文件加载已保存的环境信息
+        # 从配置文件加载已保存的环境信息（快速加载）
         self._load_environments_from_config()
         
-        # 不需要立即触发环境扫描，因为工作线程启动时会自动扫描
     
     # === 应用配置属性 ===
     @Property(str, constant=True)
@@ -332,17 +399,9 @@ class ConfigBridge(QObject):
     @Property(str, constant=True)
     def theme(self) -> str:
         """主题"""
-        return self.config_manager.get("ui.theme", "light")
+        return self.config_manager.get("ui.theme", "auto")
     
-    @Property(int, constant=True)
-    def windowWidth(self) -> int:
-        """窗口宽度"""
-        return self.config_manager.get("ui.window_width", 1200)
-    
-    @Property(int, constant=True)
-    def windowHeight(self) -> int:
-        """窗口高度"""
-        return self.config_manager.get("ui.window_height", 800)
+    # 移除不再需要的UI配置属性，因为配置文件中只有theme是有用的
     
     # === 环境配置属性 ===
     @Property(str, constant=True)
@@ -450,8 +509,9 @@ class ConfigBridge(QObject):
     
     @Slot(int, int, result=bool)
     def setWindowSize(self, width: int, height: int) -> bool:
-        """设置窗口大小"""
-        return self.config_manager.set_window_size(width, height)
+        """设置窗口大小（已移除，保留接口兼容性）"""
+        # 窗口大小配置已移除，此方法保留用于兼容性
+        return True
     
     @Slot(bool, result=bool)
     def setMirrorEnabled(self, enabled: bool) -> bool:
@@ -635,8 +695,7 @@ class ConfigBridge(QObject):
     def getEnabledMirrorSources(self) -> List[Dict[str, Any]]:
         """获取启用的镜像源列表（按优先级排序）"""
         sources = self.mirrorSources
-        # 过滤启用的镜像源（这里假设所有配置的镜像源都是启用的）
-        # 在实际应用中，可能需要添加enabled字段
+        # 过滤启用的镜像源
         enabled_sources = [source for source in sources if source.get("enabled", True)]
         # 按优先级排序
         enabled_sources.sort(key=lambda x: x.get("priority", 999))
@@ -647,9 +706,18 @@ class ConfigBridge(QObject):
         """获取默认镜像源的URL"""
         default_source = self.defaultMirrorSource
         sources = self.mirrorSources
+        
+        # 首先尝试找到默认的镜像源
         for source in sources:
-            if source.get("name") == default_source:
+            if source.get("name") == default_source and source.get("enabled", True):
                 return source.get("url", "https://pypi.org/simple/")
+        
+        # 如果默认镜像源不可用，返回第一个启用的镜像源
+        for source in sources:
+            if source.get("enabled", True):
+                return source.get("url", "https://pypi.org/simple/")
+        
+        # 如果都没有启用的，返回默认URL
         return "https://pypi.org/simple/"
     
     # === Python环境管理方法 ===
@@ -884,7 +952,7 @@ class ConfigBridge(QObject):
             cmd.extend(["--index-url", mirror_url])
             self.logger.info(f"使用镜像源安装包: {mirror_url}")
         
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
         
         self.logger.info(f"在环境 {env_name} 中成功安装包: {package_name}")
         return True
@@ -905,7 +973,7 @@ class ConfigBridge(QObject):
         
         # 使用uv卸载包
         cmd = ["uv", "pip", "uninstall", package_name, "--python", str(env_path / ("Scripts" if os.name == 'nt' else "bin") / "python.exe")]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
         
         self.logger.info(f"在环境 {env_name} 中成功卸载包: {package_name}")
         return True
@@ -926,7 +994,7 @@ class ConfigBridge(QObject):
         
         # 使用uv获取包列表
         cmd = ["uv", "pip", "list", "--python", str(python_exe)]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
         
         packages = []
         lines = result.stdout.strip().split('\n')
@@ -964,12 +1032,12 @@ class ConfigBridge(QObject):
             cmd.extend(["--index-url", mirror_url])
             self.logger.info(f"使用镜像源同步环境: {mirror_url}")
         
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
         
         self.logger.info(f"成功同步环境 {env_name} 的依赖")
         return True
     
-    # === 消息提示方法 ===
+    # === 统一消息提示方法 ===
     @Slot(str, str, str, int)
     def showMessage(self, message_type: str, title: str, content: str, duration: int = 3000):
         """显示消息提示"""
@@ -978,22 +1046,22 @@ class ConfigBridge(QObject):
     @Slot(str, str, int)
     def showSuccessMessage(self, title: str, content: str, duration: int = 3000):
         """显示成功消息"""
-        self.showSuccessMessageSignal.emit(title, content, duration)
+        self.showMessageSignal.emit("success", title, content, duration)
     
     @Slot(str, str, int)
     def showErrorMessage(self, title: str, content: str, duration: int = 5000):
         """显示错误消息"""
-        self.showErrorMessageSignal.emit(title, content, duration)
+        self.showMessageSignal.emit("error", title, content, duration)
     
     @Slot(str, str, int)
     def showWarningMessage(self, title: str, content: str, duration: int = 4000):
         """显示警告消息"""
-        self.showWarningMessageSignal.emit(title, content, duration)
+        self.showMessageSignal.emit("warning", title, content, duration)
     
     @Slot(str, str, int)
     def showInfoMessage(self, title: str, content: str, duration: int = 3000):
         """显示信息消息"""
-        self.showInfoMessageSignal.emit(title, content, duration)
+        self.showMessageSignal.emit("info", title, content, duration)
     
     # === 环境操作消息处理 ===
     def _on_environment_created(self, env_name: str, success: bool, message: str):

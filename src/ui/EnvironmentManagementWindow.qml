@@ -20,9 +20,24 @@ ApplicationWindow {
         environmentManagementWindow.y = Math.max(0, (Screen.height - environmentManagementWindow.height) / 2)
     }
     
-    // 窗口居中
+    // 窗口初始化和信号连接
     Component.onCompleted: {
         centerWindow()
+        
+        // 连接全局消息信号
+        if (configBridge) {
+            configBridge.showMessageSignal.connect(function(messageType, title, content, duration) {
+                if (messageType === "success") {
+                    messageManager.showSuccess(title, content, duration)
+                } else if (messageType === "error") {
+                    messageManager.showError(title, content, duration)
+                } else if (messageType === "warning") {
+                    messageManager.showWarning(title, content, duration)
+                } else if (messageType === "info") {
+                    messageManager.showInfo(title, content, duration)
+                }
+            })
+        }
     }
     
     // 当窗口显示时重新居中
@@ -173,9 +188,7 @@ ApplicationWindow {
                                             var result = configBridge.switchEnvironment(modelData.name)
                                             if (result) {
                                                 console.log("环境切换成功")
-                                                // 显示成功消息
-                                                messageManager.showSuccess("切换成功", "已成功切换到环境: " + modelData.name, 3000)
-                                                // 环境切换成功，但不自动关闭对话框，让用户继续管理
+                                                // 成功消息由 configBridge.switchEnvironment 内部处理
                                             } else {
                                                 console.log("环境切换失败")
                                                 // 显示错误消息
@@ -292,17 +305,11 @@ ApplicationWindow {
         var result = configBridge ? configBridge.deleteEnvironment(envName) : false
         if (result) {
             console.log("环境删除请求已发送")
-            // 显示成功消息
-            messageManager.showSuccess("删除成功", "环境 '" + envName + "' 已成功删除", 3000)
             // 删除成功后自动刷新环境列表
             if (configBridge) {
                 configBridge.refreshEnvironments()
             }
-        } else {
-            console.log("环境删除失败")
-            // 显示错误消息
-            messageManager.showError("删除失败", "删除环境 '" + envName + "' 时发生错误", 3000)
-        }
+        } 
     }
     
     function showPackageManager(envName) {
@@ -520,23 +527,23 @@ ApplicationWindow {
                     }
                 }
                 
-                Button {
-                    text: "切换到此环境"
-                    highlighted: true
-                    enabled: environmentDetailsDialog.envInfo && !environmentDetailsDialog.envInfo.is_active
+                // Button {
+                //     text: "切换到此环境"
+                //     highlighted: true
+                //     enabled: environmentDetailsDialog.envInfo && !environmentDetailsDialog.envInfo.is_active
                     
-                    onClicked: {
-                        if (configBridge && environmentDetailsDialog.envInfo) {
-                            var result = configBridge.switchEnvironment(environmentDetailsDialog.envInfo.name)
-                            if (result) {
-                                console.log("环境切换成功")
-                                environmentDetailsDialog.close()
-                            } else {
-                                console.log("环境切换失败")
-                            }
-                        }
-                    }
-                }
+                //     onClicked: {
+                //         if (configBridge && environmentDetailsDialog.envInfo) {
+                //             var result = configBridge.switchEnvironment(environmentDetailsDialog.envInfo.name)
+                //             if (result) {
+                //                 console.log("环境切换成功")
+                //                 environmentDetailsDialog.close()
+                //             } else {
+                //                 console.log("环境切换失败")
+                //             }
+                //         }
+                //     }
+                // }
             }
         }
     }
