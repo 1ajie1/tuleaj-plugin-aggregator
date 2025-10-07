@@ -1,6 +1,8 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import QtWebEngine 1.15
+import PluginBridge 1.0
 
 Rectangle {
     id: root
@@ -8,87 +10,84 @@ Rectangle {
     
     // 属性
     property string currentPluginName: ""
-    property string currentPluginDescription: ""
+    property bool isLoading: false
+    property string errorMessage: ""
+    property Timer loadingTimer: Timer {
+        interval: 10000  // 10秒超时
+        repeat: false
+        onTriggered: {
+            if (root.isLoading) {
+                console.log("PluginDocumentViewer: 加载超时")
+                root.isLoading = false
+                root.errorMessage = "文档加载超时，请重试"
+            }
+        }
+    }
     
     // 信号定义
-    signal settingsRequested()
-    signal addPluginRequested()
+    signal settingsRequested
+    signal addPluginRequested
     
+    // README.md 信号处理
+    function onReadmeLoaded(pluginName, htmlFilePath) {
+        console.log("PluginDocumentViewer: 收到 README.md 加载完成信号:", pluginName)
+        console.log("PluginDocumentViewer: HTML 文件路径:", htmlFilePath)
+        if (pluginName === currentPluginName) {
+            console.log("PluginDocumentViewer: 插件名称匹配，加载 HTML 文件")
+            isLoading = false
+            loadingTimer.stop()
+            errorMessage = ""
+            webView.url = "file:///" + htmlFilePath.replace(/\\/g, "/")
+        } else {
+            console.log("PluginDocumentViewer: 插件名称不匹配，当前:", currentPluginName, "收到:", pluginName)
+        }
+    }
+    
+    function onReadmeError(pluginName, errorMsg) {
+        console.log("PluginDocumentViewer: 收到 README.md 加载错误信号:", pluginName, errorMsg)
+        if (pluginName === currentPluginName) {
+            isLoading = false
+            loadingTimer.stop()
+            errorMessage = errorMsg
+        }
+    }
+
     // 函数：加载插件文档
     function loadPluginDocument(pluginName) {
-        currentPluginName = pluginName
-        currentPluginDescription = getPluginDescription(pluginName)
-        markdownViewer.text = getPluginDocument(pluginName)
-    }
-    
-    // 获取插件描述
-    function getPluginDescription(pluginName) {
-        switch(pluginName) {
-            case "系统监控":
-                return "实时系统监控工具, 显示CPU、内存使用情况和系统状态"
-            case "Chrome Extension Tools":
-                return "Chrome浏览器扩展开发和调试工具, 提供实时监控和性能分析"
-            case "Figma Plugin SDK":
-                return "Figma插件开发SDK, 包含完整的API文档和示例代码"
-            case "Data Visualization":
-                return "数据可视化工具集, 支持多种图表类型和交互式分析"
-            case "Package Manager":
-                return "智能包管理器, 自动处理依赖关系和版本冲突"
-            default:
-                return "插件描述"
+        console.log("PluginDocumentViewer: loadPluginDocument called with:", pluginName);
+        currentPluginName = pluginName;
+        isLoading = true;
+        errorMessage = "";
+        
+        // 启动超时计时器
+        loadingTimer.start();
+        
+        // 调用后端生成 HTML 文件
+        if (typeof pluginBridge !== 'undefined' && pluginBridge !== null) {
+            console.log("PluginDocumentViewer: 调用 pluginBridge.generate_readme_html");
+            pluginBridge.generate_readme_html(pluginName);
+        } else {
+            console.log("PluginDocumentViewer: pluginBridge 不可用");
+            isLoading = false;
+            loadingTimer.stop();
+            errorMessage = "插件桥接器不可用";
         }
     }
     
-    // 获取插件文档内容
-    function getPluginDocument(pluginName) {
-        switch(pluginName) {
-            case "系统监控":
-                var doc = "# 系统监控插件\n\n## 功能概述\n\n"
-                doc += "系统监控插件是一个实时系统资源监控工具，提供直观的CPU和内存使用情况显示。\n\n"
-                doc += "## 主要功能\n\n### CPU 监控\n"
-                doc += "- **实时CPU使用率**: 显示当前CPU使用百分比\n"
-                doc += "- **动态进度条**: 直观的可视化显示\n"
-                doc += "- **实时更新**: 持续监控CPU状态变化\n\n"
-                doc += "### 内存监控\n"
-                doc += "- **内存使用率**: 显示当前内存使用百分比\n"
-                doc += "- **总内存信息**: 显示系统总内存容量\n"
-                doc += "- **已用内存**: 显示当前已使用的内存量\n"
-                doc += "- **可视化显示**: 通过进度条直观展示内存使用情况\n\n"
-                doc += "## 技术特性\n\n"
-                doc += "- **轻量级**: 占用系统资源极少\n"
-                doc += "- **实时性**: 毫秒级数据更新\n"
-                doc += "- **跨平台**: 支持Windows、macOS、Linux\n"
-                doc += "- **用户友好**: 简洁直观的界面设计\n\n"
-                doc += "## 使用方法\n\n"
-                doc += "1. 在插件列表中点击\"启动\"按钮\n"
-                doc += "2. 系统监控窗口将自动打开\n"
-                doc += "3. 实时查看CPU和内存使用情况\n"
-                doc += "4. 点击窗口关闭按钮停止监控\n\n"
-                doc += "## 系统要求\n\n"
-                doc += "- Python 3.11+\n"
-                doc += "- PySide6\n"
-                doc += "- psutil (系统信息获取)\n\n"
-                doc += "## 注意事项\n\n"
-                doc += "- 监控数据每100毫秒更新一次\n"
-                doc += "- 关闭监控窗口不会停止插件运行\n"
-                doc += "- 需要在主应用中点击\"停止\"按钮完全停止插件"
-                return doc
-            
-            case "Figma Plugin SDK":
-                return "# 构建强大的Figma插件\n\n## SDK概述\n\nFigma Plugin SDK 是一个强大的开发工具包，为开发者提供了创建功能丰富、交互性强的Figma插件的完整解决方案。\n\n## 核心功能\n\n### 节点操作\n- **选择节点**: 精确选择和操作Figma设计元素\n- **创建节点**: 动态创建各种UI组件\n- **修改属性**: 实时修改节点属性和样式\n\n### API集成\n- **RESTful API**: 完整的REST API接口\n- **WebSocket支持**: 实时数据同步\n- **认证系统**: 安全的用户认证机制\n\n### 开发工具\n- **调试器**: 内置调试工具，支持断点调试\n- **性能监控**: 实时性能分析和优化建议\n- **代码提示**: 智能代码补全和语法检查\n\n## 快速开始\n\n1. 安装SDK\n2. 创建新项目\n3. 配置开发环境\n4. 开始编码\n\n## 示例代码\n\n```javascript\n// 创建新节点\nconst newNode = figma.createRectangle();\nnewNode.resize(100, 100);\nnewNode.fills = [{type: 'SOLID', color: {r: 1, g: 0, b: 0}}];\n```\n\n## 最佳实践\n\n- 遵循Figma设计规范\n- 优化插件性能\n- 提供良好的用户体验\n- 完善的错误处理机制"
-            
-            case "Chrome Extension Tools":
-                return "# Chrome Extension Tools\n\n## 功能特性\n\nChrome Extension Tools 是一套完整的Chrome浏览器扩展开发工具集。\n\n### 开发工具\n- 实时调试\n- 性能分析\n- 代码审查\n\n### 监控功能\n- 扩展性能监控\n- 用户行为分析\n- 错误日志收集\n\n## 使用方法\n\n1. 安装工具\n2. 配置项目\n3. 开始开发\n\n## 技术栈\n\n- JavaScript ES6+\n- Chrome Extension API\n- Webpack\n- Babel"
-            
-            case "Data Visualization":
-                return "# Data Visualization\n\n## 概述\n\n数据可视化工具集，提供丰富的图表类型和交互式分析功能。\n\n## 支持的图表类型\n\n- 柱状图\n- 折线图\n- 饼图\n- 散点图\n- 热力图\n\n## 特性\n\n- 响应式设计\n- 交互式操作\n- 数据导出\n- 自定义主题"
-            
-            case "Package Manager":
-                return "# Package Manager\n\n## 智能包管理\n\n智能包管理器，自动处理依赖关系和版本冲突。\n\n## 主要功能\n\n- 依赖解析\n- 版本管理\n- 冲突检测\n- 自动更新\n\n## 支持格式\n\n- npm\n- yarn\n- pnpm\n- pip"
-            
-            default:
-                return "# 请选择一个插件查看文档\n\n从左侧列表中选择一个插件来查看其详细文档。\n\n## 使用说明\n\n1. 在左侧插件列表中选择您感兴趣的插件\n2. 查看插件的详细文档和说明\n3. 使用启动/停止按钮控制插件状态\n\n## 插件状态\n\n- **运行中**: 插件正在正常运行\n- **已停止**: 插件已停止运行\n- **错误**: 插件运行出现错误"
-        }
+    // 组件完成时连接信号
+    Component.onCompleted: {
+        console.log("PluginDocumentViewer: 组件创建完成")
+        // 延迟连接信号，确保 pluginBridge 可用
+        Qt.callLater(function() {
+            if (typeof pluginBridge !== 'undefined' && pluginBridge !== null) {
+                console.log("PluginDocumentViewer: 直接连接 pluginBridge 信号")
+                pluginBridge.readmeLoaded.connect(root.onReadmeLoaded)
+                pluginBridge.readmeError.connect(root.onReadmeError)
+                console.log("PluginDocumentViewer: 信号连接完成")
+            } else {
+                console.log("PluginDocumentViewer: pluginBridge 不可用")
+            }
+        })
     }
     
     // 主布局
@@ -97,64 +96,253 @@ Rectangle {
         spacing: 0
         
         // 主要内容区域
-        ScrollView {
+        Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
+            color: "transparent"
             
-            ColumnLayout {
-                width: parent.width
-                spacing: 24
-                anchors.margins: 24
+            StackLayout {
+                id: documentStackLayout
+                anchors.fill: parent
+                anchors.rightMargin: 12  // 为滚动条留出空间
+                currentIndex: {
+                    if (isLoading) return 0;
+                    if (errorMessage.length > 0) return 1;
+                    return 2;
+                }
                 
-                // 顶部标题区域
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
+                // 加载状态
+                Rectangle {
+                    color: "transparent"
                     
-                    // 插件主标题
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 16
+                        
+                        BusyIndicator {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            running: root.isLoading
+                            width: 32
+                            height: 32
+                        }
+                        
                     Text {
-                        text: currentPluginName || "插件聚合器"
-                        font.pixelSize: 28
-                        font.bold: true
-                        color: "#333333"
-                        Layout.fillWidth: true
-                    }
-                    
-                    // 插件副标题
-                    Text {
-                        text: currentPluginDescription || "请选择一个插件查看文档"
-                        font.pixelSize: 16
+                            text: "正在加载文档..."
+                            anchors.horizontalCenter: parent.horizontalCenter
                         color: "#666666"
-                        Layout.fillWidth: true
+                            font.pixelSize: 14
+                        }
                     }
                 }
                 
-                // 文档内容区域
+                // 错误状态
                 Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
                     color: "transparent"
                     
-                    ScrollView {
-                        anchors.fill: parent
-                        clip: true
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 16
                         
                         Text {
-                            id: markdownViewer
-                            width: parent.width
-                            text: "请选择一个插件查看文档"
+                            text: "⚠️"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            font.pixelSize: 32
+                        }
+                        
+                        Text {
+                            text: "文档加载失败"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            color: "#e74c3c"
+                            font.pixelSize: 16
+                            font.bold: true
+                        }
+                        
+                        Text {
+                            text: root.errorMessage || "请检查文件是否存在"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            color: "#666666"
                             font.pixelSize: 14
-                            color: "#333333"
                             wrapMode: Text.WordWrap
-                            textFormat: Text.RichText
-                            lineHeight: 1.6
-                            
-                            // 简单的Markdown渲染
-                            onTextChanged: {
-                                // 这里可以实现Markdown渲染逻辑
-                                // 目前使用简单的文本显示
+                            width: Math.min(parent.width - 32, 400)
+                        }
+                        
+                        Button {
+                            text: "重试"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            onClicked: {
+                                if (currentPluginName.length > 0) {
+                                    loadPluginDocument(currentPluginName);
+                                }
                             }
+                        }
+                    }
+                }
+                
+                // 内容显示 - 使用 Flickable + 自定义滚动条（参考 SettingsWindow）
+                Flickable {
+                    id: documentFlickable
+                    anchors.fill: parent
+                    contentWidth: webView.width
+                    contentHeight: webView.height
+                    boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
+                    
+                    WebEngineView {
+                        id: webView
+                        width: documentFlickable.width
+                        height: Math.max(documentFlickable.height, implicitHeight)
+                        
+                        // 设置背景为白色
+                        backgroundColor: "white"
+                        
+                        // 设置权限
+                        settings.javascriptEnabled: true
+                        settings.localContentCanAccessRemoteUrls: false
+                        settings.localContentCanAccessFileUrls: true
+                        
+                        // 禁用 WebEngineView 的内部滚动条
+                        settings.autoLoadImages: true
+                        settings.pluginsEnabled: false
+                        
+                        // 页面加载完成处理
+                        onLoadingChanged: function(loadRequest) {
+                            console.log("WebEngineView: 加载状态变化:", loadRequest.status)
+                            if (loadRequest.status === WebEngineView.LoadSucceededStatus) {
+                                console.log("WebEngineView: 页面加载成功")
+                                // 注入 CSS 隐藏内部滚动条
+                                webView.runJavaScript(`
+                                    var style = document.createElement('style');
+                                    style.innerHTML = 'body::-webkit-scrollbar { display: none; } html::-webkit-scrollbar { display: none; }';
+                                    document.head.appendChild(style);
+                                `)
+                            } else if (loadRequest.status === WebEngineView.LoadFailedStatus) {
+                                console.log("WebEngineView: 页面加载失败")
+                                root.errorMessage = "页面加载失败"
+                                root.isLoading = false
+                            }
+                        }
+                        
+                        // 当内容高度变化时更新 Flickable
+                        onHeightChanged: {
+                            documentFlickable.contentHeight = height
+                        }
+                    }
+                }
+            }
+            
+            // 自定义滚动条容器（备用方案）
+            Rectangle {
+                id: documentScrollBarContainer
+                width: 6
+                height: parent.height - 8
+                anchors.right: parent.right
+                anchors.rightMargin: 2
+                anchors.top: parent.top
+                anchors.topMargin: 4
+                color: "transparent"
+                visible: documentFlickable.contentHeight > documentFlickable.height
+                
+                // 滚动条背景
+                Rectangle {
+                    id: documentScrollBarBackground
+                    anchors.fill: parent
+                    color: "#e8e8e8"
+                    radius: 3
+                    opacity: documentScrollBarMouseArea.containsMouse ? 0.8 : 0.4
+                    
+                    Behavior on opacity {
+                        NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                    }
+                }
+                
+                // 滚动条滑块
+                Rectangle {
+                    id: documentScrollBarHandle
+                    width: parent.width
+                    height: Math.max(20, (documentFlickable.height / documentFlickable.contentHeight) * documentScrollBarContainer.height)
+                    x: 0
+                    y: (documentFlickable.contentY / (documentFlickable.contentHeight - documentFlickable.height)) * 
+                       (documentScrollBarContainer.height - height)
+                    color: documentScrollBarMouseArea.pressed ? "#1B5E20" : 
+                           (documentScrollBarMouseArea.containsMouse ? "#2E7D32" : "#4CAF50")
+                    radius: 3
+                    opacity: documentScrollBarMouseArea.containsMouse ? 1.0 : 0.7
+                    
+                    // 渐变效果
+                    gradient: Gradient {
+                        GradientStop { 
+                            position: 0.0; 
+                            color: documentScrollBarMouseArea.pressed ? "#0D4A0F" : 
+                                   (documentScrollBarMouseArea.containsMouse ? "#1B5E20" : "#4CAF50")
+                        }
+                        GradientStop { 
+                            position: 1.0; 
+                            color: documentScrollBarMouseArea.pressed ? "#1B5E20" : 
+                                   (documentScrollBarMouseArea.containsMouse ? "#2E7D32" : "#66BB6A")
+                        }
+                    }
+                    
+                    // 内阴影效果
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        color: "transparent"
+                        border.color: "white"
+                        border.width: 1
+                        radius: 2
+                        opacity: 0.3
+                    }
+                    
+                    // 动画效果
+                    Behavior on opacity {
+                        NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                    }
+                    
+                    Behavior on scale {
+                        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                    }
+                    
+                    scale: documentScrollBarMouseArea.pressed ? 1.1 : 
+                           (documentScrollBarMouseArea.containsMouse ? 1.05 : 1.0)
+                }
+                
+                // 鼠标交互区域
+                MouseArea {
+                    id: documentScrollBarMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton
+                    
+                    onPressed: {
+                        var clickY = mouseY
+                        var handleY = documentScrollBarHandle.y
+                        var handleHeight = documentScrollBarHandle.height
+                        var containerHeight = documentScrollBarContainer.height
+                        
+                        if (clickY < handleY) {
+                            // 点击滑块上方，向上滚动
+                            documentFlickable.contentY = Math.max(0, documentFlickable.contentY - documentFlickable.height * 0.8)
+                        } else if (clickY > handleY + handleHeight) {
+                            // 点击滑块下方，向下滚动
+                            documentFlickable.contentY = Math.min(documentFlickable.contentHeight - documentFlickable.height, 
+                                                                  documentFlickable.contentY + documentFlickable.height * 0.8)
+                        } else {
+                            // 点击滑块，开始拖拽
+                            drag.target = documentScrollBarHandle
+                            drag.axis = Drag.YAxis
+                            drag.minimumY = 0
+                            drag.maximumY = containerHeight - handleHeight
+                        }
+                    }
+                    
+                    onReleased: {
+                        drag.target = null
+                    }
+                    
+                    onPositionChanged: {
+                        if (drag.target === documentScrollBarHandle) {
+                            var ratio = documentScrollBarHandle.y / (documentScrollBarContainer.height - documentScrollBarHandle.height)
+                            documentFlickable.contentY = ratio * (documentFlickable.contentHeight - documentFlickable.height)
                         }
                     }
                 }
@@ -193,27 +381,27 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: {
-                            root.settingsRequested()
+                            root.settingsRequested();
                         }
                         
                         onEntered: {
-                            settingsButton.color = "#e8e8e8"
-                            settingsButton.border.color = "#d0d0d0"
+                            settingsButton.color = "#e8e8e8";
+                            settingsButton.border.color = "#d0d0d0";
                         }
                         
                         onExited: {
-                            settingsButton.color = "#f5f5f5"
-                            settingsButton.border.color = "#e0e0e0"
+                            settingsButton.color = "#f5f5f5";
+                            settingsButton.border.color = "#e0e0e0";
                         }
                         
                         onPressed: {
-                            settingsButton.color = "#d0d0d0"
-                            settingsButton.border.color = "#c0c0c0"
+                            settingsButton.color = "#d0d0d0";
+                            settingsButton.border.color = "#c0c0c0";
                         }
                         
                         onReleased: {
-                            settingsButton.color = "#e8e8e8"
-                            settingsButton.border.color = "#d0d0d0"
+                            settingsButton.color = "#e8e8e8";
+                            settingsButton.border.color = "#d0d0d0";
                         }
                     }
                 }
@@ -238,23 +426,23 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: {
-                            root.addPluginRequested()
+                            root.addPluginRequested();
                         }
                         
                         onEntered: {
-                            addPluginButton.color = "#45a049"
+                            addPluginButton.color = "#45a049";
                         }
                         
                         onExited: {
-                            addPluginButton.color = "#4CAF50"
+                            addPluginButton.color = "#4CAF50";
                         }
                         
                         onPressed: {
-                            addPluginButton.color = "#3d8b40"
+                            addPluginButton.color = "#3d8b40";
                         }
                         
                         onReleased: {
-                            addPluginButton.color = "#45a049"
+                            addPluginButton.color = "#45a049";
                         }
                     }
                 }

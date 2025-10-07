@@ -2,9 +2,11 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import ConfigBridge 1.0
+import PluginBridge 1.0
 
 ApplicationWindow {
     id: mainWindow
+    objectName: "mainWindow"
     title: (configBridge ? configBridge.appName : "Tuleaj Plugin Aggregator") + " v" + (configBridge ? configBridge.appVersion : "1.0.0")
     width: Math.min(1200, Screen.width * 0.8)
     height: Math.min(800, Screen.height * 0.7)
@@ -13,25 +15,38 @@ ApplicationWindow {
     // 设置窗口属性
     minimumWidth: 800
     minimumHeight: 600
-
+    
     // 窗口居中
     Component.onCompleted: {
-        console.log("QML主窗口组件加载完成")
         mainWindow.x = (Screen.width - mainWindow.width) / 2
         mainWindow.y = (Screen.height - mainWindow.height) / 2
         
         // 连接配置桥接器信号
         if (configBridge) {
-            console.log("configBridge可用，连接信号")
             configBridge.configError.connect(function(errorMessage) {
                 console.log("配置错误:", errorMessage)
             })
-            
             configBridge.configSaved.connect(function() {
                 console.log("配置已保存")
             })
-        } else {
-            console.log("configBridge不可用")
+        }
+        
+        // 连接插件桥接器信号
+        if (pluginBridge) {
+            pluginBridge.pluginsLoaded.connect(pluginPanel.updatePluginList)
+            pluginBridge.pluginStatusChanged.connect(pluginPanel.updatePluginStatus)
+           
+            // 连接 README.md 相关信号
+            console.log("main.qml: 开始连接 README.md 信号")
+            pluginBridge.readmeLoaded.connect(function(pluginName, filePath) {
+                console.log("main.qml: 收到 readmeLoaded 信号:", pluginName, filePath)
+                documentViewer.onReadmeLoaded(pluginName, filePath)
+            })
+            pluginBridge.readmeError.connect(function(pluginName, error) {
+                console.log("main.qml: 收到 readmeError 信号:", pluginName, error)
+                documentViewer.onReadmeError(pluginName, error)
+            })
+            console.log("main.qml: README.md 信号连接完成")
         }
     }
     
@@ -176,6 +191,7 @@ ApplicationWindow {
                 onAddPluginRequested: {
                     showFileSelector()
                 }
+                
             }
         }
     }

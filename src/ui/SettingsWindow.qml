@@ -118,7 +118,7 @@ ApplicationWindow {
                     anchors.top: parent.top
                     anchors.topMargin: 4
                     color: "transparent"
-                    visible: settingsListView.contentHeight > settingsListView.height
+                    visible: false
                     
                     // 滚动条背景
                     Rectangle {

@@ -6,6 +6,8 @@
 """
 
 import toml
+import markdown
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from PySide6.QtCore import QObject, Signal, QThread, Slot
@@ -105,6 +107,9 @@ class PluginScanner(QThread):
 class PluginBridge(QObject):
     """插件桥接器 - 连接Python后端和QML前端"""
     
+    # 类变量用于跟踪实例
+    _instance_count = 0
+    
     # 信号定义
     pluginsLoaded = Signal(list)  # 插件列表加载完成
     pluginStatusChanged = Signal(str, str)  # 插件状态变化 (name, status)
@@ -114,8 +119,20 @@ class PluginBridge(QObject):
     dependencySyncStarted = Signal(str)  # 依赖同步开始 (env_name)
     dependencySyncCompleted = Signal(str, bool, str)  # 依赖同步完成 (env_name, success, message)
     
+    # README.md 相关信号
+    readmeLoaded = Signal(str, str)  # README.md 加载完成 (plugin_name, html_file_path)
+    readmeError = Signal(str, str)   # README.md 加载错误 (plugin_name, error_message)
+    
+    # 窗口关闭信号
+    windowClosingRequested = Signal()  # 窗口关闭请求
+    
     def __init__(self, parent=None):
         super().__init__(parent)
+        
+        # 增加实例计数
+        PluginBridge._instance_count += 1
+        self._instance_id = PluginBridge._instance_count
+        
         self.plugins_info = []
         self.plugin_scanner = None
         self.plugins_dir = "plugins"
@@ -128,6 +145,10 @@ class PluginBridge(QObject):
         
         # 初始化进程管理器
         self.process_manager = PluginProcessManager(self)
+        
+        # 记录实例信息
+        self.logger.info(f"PluginBridge 实例创建完成，实例ID: {self._instance_id}，对象ID: {id(self)}")
+        self.logger.info(f"当前 PluginBridge 总实例数: {PluginBridge._instance_count}")
         
         # 连接进程管理器信号
         self.process_manager.processStarted.connect(self._on_plugin_process_started)
@@ -145,8 +166,21 @@ class PluginBridge(QObject):
         self.dependency_manager.dependencySyncStarted.connect(self.dependencySyncStarted.emit)
         self.dependency_manager.dependencySyncCompleted.connect(self.dependencySyncCompleted.emit)
         
+        # 创建临时目录用于存储 HTML 文件
+        self.temp_dir = Path(tempfile.gettempdir()) / "tuleaj_plugin_aggregator"
+        self.temp_dir.mkdir(exist_ok=True)
+        self.logger.info(f"临时 HTML 文件目录: {self.temp_dir}")
+        
         # 启动插件扫描
         self.scan_plugins()
+    
+    @classmethod
+    def get_instance_info(cls) -> dict:
+        """获取实例统计信息"""
+        return {
+            'total_instances': cls._instance_count,
+            'class_name': cls.__name__
+        }
     
     def scan_plugins(self):
         """扫描插件目录"""
@@ -179,6 +213,24 @@ class PluginBridge(QObject):
                 return plugin
         return None
     
+    @Slot(str, result=str)
+    @handle_exceptions("获取插件状态", show_dialog=False, log_level="ERROR", return_value="stopped")
+    def get_plugin_status(self, plugin_name: str) -> str:
+        """获取插件当前状态"""
+        # 从插件进程管理器获取状态
+        if hasattr(self, 'process_manager') and self.process_manager:
+            return self.process_manager.get_plugin_status(plugin_name)
+        else:
+            self.logger.warning("进程管理器不可用，返回默认状态")
+            return "stopped"
+    
+    @Slot()
+    def handleWindowClosing(self):
+        """处理窗口关闭请求"""
+        self.logger.info("收到窗口关闭请求")
+        
+        self.windowClosingRequested.emit()
+    
     @Slot(str, result=bool)
     @handle_exceptions("启动插件", show_dialog=False, log_level="ERROR", return_value=False)
     def start_plugin(self, plugin_name: str) -> bool:
@@ -193,113 +245,124 @@ class PluginBridge(QObject):
             self.pluginError.emit(plugin_name, "插件已经在运行中")
             return False
         
-        try:
-            plugin_path = Path(plugin['path'])
-            entry_point = plugin['entry_point']
-            
-            # 构建插件启动命令
-            if entry_point.endswith('.py'):
-                # Python 插件
-                main_file = plugin_path / entry_point
-                if not main_file.exists():
-                    self.pluginError.emit(plugin_name, f"插件入口文件不存在: {main_file}")
-                    return False
-                
-                # 获取当前环境名称
-                current_env_name = self._get_current_environment()
-                self.logger.info(f"使用当前环境: {current_env_name}")
-                
-                # 步骤1：懒加载安装依赖（集成uv sync）
-                self.logger.info("开始依赖管理和同步...")
-                self.dependencyInstalling.emit(plugin_name, "正在管理依赖...")
-                
-                # 读取插件依赖
-                plugin_deps = self.dependency_manager.read_plugin_dependencies(plugin_path)
-                if plugin_deps:
-                    self.logger.info(f"发现插件 {plugin_name} 的依赖: {[str(dep) for dep in plugin_deps]}")
-                    
-                    # 解决依赖冲突
-                    resolved_deps = self.dependency_manager.resolve_dependencies(current_env_name)
-                    self.logger.info(f"协商后的依赖: {resolved_deps}")
-                    
-                    # 使用 uv sync 同步依赖
-                    sync_success = self.dependency_manager.sync_dependencies_with_uv(current_env_name, resolved_deps)
-                    
-                    if not sync_success:
-                        self.pluginError.emit(plugin_name, "依赖同步失败")
-                        return False
-                    
-                        self.logger.info("依赖同步成功")
-                else:
-                    self.logger.info(f"插件 {plugin_name} 没有依赖")
-                
-                # 步骤2：启动插件进程
-                self.logger.info(f"启动插件 {plugin_name}...")
-                
-                # 直接使用环境中的 Python 运行插件
-                python_path = self.dependency_manager.get_environment_python_path(current_env_name)
-                
-                if not python_path.exists():
-                    self.pluginError.emit(plugin_name, f"环境 {current_env_name} 不存在")
-                    return False
-                
-                # 准备环境变量
-                env_vars = {
-                    "VIRTUAL_ENV": str(python_path.parent.parent),
-                    "PLUGIN_NAME": plugin_name,
-                    "PLUGIN_PATH": str(plugin_path)
-                }
-                
-                self.logger.info(f"启动插件 {plugin_name}:")
-                self.logger.info(f"  Python路径: {python_path}")
-                self.logger.info(f"  脚本文件: {main_file}")
-                self.logger.info(f"  工作目录: {plugin_path}")
-                self.logger.info(f"  环境: {current_env_name}")
-                
-                # 使用进程管理器启动插件
-                success = self.process_manager.start_plugin(
-                    plugin_name=plugin_name,
-                    python_path=str(python_path),
-                    script_path=entry_point,
-                    working_dir=str(plugin_path),
-                    env_vars=env_vars
-                )
-                
-                if success:
-                    # 进程管理器会通过信号自动更新状态，不需要手动更新
-                    return True
-                else:
-                    return False
-            else:
-                self.pluginError.emit(plugin_name, f"不支持的插件类型: {entry_point}")
+        plugin_path = Path(plugin['path'])
+        entry_point = plugin['entry_point']
+        
+        # 构建插件启动命令
+        if entry_point.endswith('.py'):
+            # Python 插件
+            main_file = plugin_path / entry_point
+            if not main_file.exists():
+                self.pluginError.emit(plugin_name, f"插件入口文件不存在: {main_file}")
                 return False
+            
+            # 获取当前环境名称
+            current_env_name = self._get_current_environment()
+            self.logger.info(f"使用当前环境: {current_env_name}")
+            
+            # 步骤1：懒加载安装依赖（集成uv sync）
+            self.logger.info("开始依赖管理和同步...")
+            self.dependencyInstalling.emit(plugin_name, "正在管理依赖...")
+            
+            # 读取插件依赖
+            plugin_deps = self.dependency_manager.read_plugin_dependencies(plugin_path)
+            if plugin_deps:
+                self.logger.info(f"发现插件 {plugin_name} 的依赖: {[str(dep) for dep in plugin_deps]}")
                 
-        except Exception as e:
-            self.pluginError.emit(plugin_name, f"启动插件时发生错误: {str(e)}")
+                # 解决依赖冲突
+                resolved_deps = self.dependency_manager.resolve_dependencies(current_env_name)
+                self.logger.info(f"协商后的依赖: {resolved_deps}")
+                
+                # 使用 uv sync 同步依赖
+                sync_success = self.dependency_manager.sync_dependencies_with_uv(current_env_name, resolved_deps)
+                
+                if not sync_success:
+                    self.pluginError.emit(plugin_name, "依赖同步失败")
+                    return False
+                
+                self.logger.info("依赖同步成功")
+            else:
+                self.logger.info(f"插件 {plugin_name} 没有依赖")
+            
+            # 步骤2：启动插件进程
+            self.logger.info(f"启动插件 {plugin_name}...")
+            
+            # 直接使用环境中的 Python 运行插件
+            python_path = self.dependency_manager.get_environment_python_path(current_env_name)
+            
+            if not python_path.exists():
+                self.pluginError.emit(plugin_name, f"环境 {current_env_name} 不存在")
+                return False
+            
+            # 准备环境变量
+            env_vars = {
+                "VIRTUAL_ENV": str(python_path.parent.parent),
+                "PLUGIN_NAME": plugin_name,
+                "PLUGIN_PATH": str(plugin_path)
+            }
+            
+            self.logger.info(f"启动插件 {plugin_name}:")
+            self.logger.info(f"  Python路径: {python_path}")
+            self.logger.info(f"  脚本文件: {main_file}")
+            self.logger.info(f"  工作目录: {plugin_path}")
+            self.logger.info(f"  环境: {current_env_name}")
+            
+            # 使用进程管理器启动插件
+            success = self.process_manager.start_plugin(
+                plugin_name=plugin_name,
+                python_path=str(python_path),
+                script_path=entry_point,
+                working_dir=str(plugin_path),
+                env_vars=env_vars
+            )
+            
+            if success:
+                # 进程管理器会通过信号自动更新状态，不需要手动更新
+                return True
+            else:
+                return False
+        else:
+            self.pluginError.emit(plugin_name, f"不支持的插件类型: {entry_point}")
             return False
     
     @Slot(str, result=bool)
     @handle_exceptions("停止插件", show_dialog=False, log_level="ERROR", return_value=False)
     def stop_plugin(self, plugin_name: str) -> bool:
         """停止插件"""
-        try:
-            if not self.process_manager.is_plugin_running(plugin_name):
-                self.logger.warning(f"插件 {plugin_name} 不在运行中")
-                return False
-            
-            # 使用进程管理器停止插件
-            success = self.process_manager.stop_plugin(plugin_name)
-            
-            if success:
-                # 更新状态
-                self._update_plugin_status(plugin_name, "stopped")
-                return True
-            else:
-                return False
-                
-        except Exception as e:
-            self.pluginError.emit(plugin_name, f"停止插件时发生错误: {str(e)}")
+        if not self.process_manager.is_plugin_running(plugin_name):
+            self.logger.warning(f"插件 {plugin_name} 不在运行中")
             return False
+        
+        # 使用进程管理器停止插件
+        success = self.process_manager.stop_plugin(plugin_name)
+        
+        if success:
+            # 更新状态
+            self._update_plugin_status(plugin_name, "stopped")
+            return True
+        else:
+            return False
+    
+    def _delete_plugin_directory(self, plugin_path: Path) -> bool:
+        """删除插件目录的辅助方法"""
+        import shutil
+        import subprocess
+        
+        try:
+            shutil.rmtree(plugin_path)
+            self.logger.info(f"插件目录 {plugin_path} 删除成功")
+            return True
+        except Exception as e:
+            self.logger.error(f"删除插件目录失败: {e}")
+            # 尝试使用系统命令删除
+            try:
+                subprocess.run(['rmdir', '/s', '/q', str(plugin_path)], 
+                             shell=True, check=True, capture_output=True)
+                self.logger.info("使用系统命令删除插件目录成功")
+                return True
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"系统命令删除失败: {e}")
+                return False
     
     @Slot(str, result=bool)
     @handle_exceptions("卸载插件", show_dialog=False, log_level="ERROR", return_value=False)
@@ -310,57 +373,38 @@ class PluginBridge(QObject):
             self.pluginError.emit(plugin_name, "插件不存在")
             return False
         
-        try:
-            # 步骤1：如果插件正在运行，先停止它
-            if plugin_name in self.running_processes:
-                self.logger.info(f"插件 {plugin_name} 正在运行，先停止它...")
-                if not self.stop_plugin(plugin_name):
-                    self.pluginError.emit(plugin_name, "无法停止正在运行的插件")
-                    return False
-            
-            plugin_path = Path(plugin['path'])
-            
-            # 步骤2：检查插件目录是否存在
-            if not plugin_path.exists():
-                self.logger.error(f"插件目录不存在: {plugin_path}")
-                # 即使目录不存在，也要从列表中移除
-                self.plugins_info = [p for p in self.plugins_info if p['name'] != plugin_name]
-                self.pluginsLoaded.emit(self.plugins_info)
-                self.logger.info(f"插件 {plugin_name} 已从列表中移除")
-                return True
-            
-            # 步骤3：删除插件目录
-            self.logger.info(f"删除插件目录: {plugin_path}")
-            
-            # 在Windows上，需要特殊处理
-            import shutil
-            try:
-                shutil.rmtree(plugin_path)
-                self.logger.info(f"插件目录 {plugin_path} 删除成功")
-            except Exception as e:
-                self.logger.error(f"删除插件目录失败: {e}")
-                # 尝试使用系统命令删除
-                import subprocess
-                try:
-                    subprocess.run(['rmdir', '/s', '/q', str(plugin_path)], 
-                                 shell=True, check=True, capture_output=True)
-                    self.logger.info("使用系统命令删除插件目录成功")
-                except subprocess.CalledProcessError as e:
-                    self.pluginError.emit(plugin_name, f"删除插件目录失败: {e}")
-                    return False
-            
-            # 步骤4：从插件列表中移除
+        # 步骤1：如果插件正在运行，先停止它
+        if self.process_manager.is_plugin_running(plugin_name):
+            self.logger.info(f"插件 {plugin_name} 正在运行，先停止它...")
+            if not self.stop_plugin(plugin_name):
+                self.pluginError.emit(plugin_name, "无法停止正在运行的插件")
+                return False
+        
+        plugin_path = Path(plugin['path'])
+        
+        # 步骤2：检查插件目录是否存在
+        if not plugin_path.exists():
+            self.logger.error(f"插件目录不存在: {plugin_path}")
+            # 即使目录不存在，也要从列表中移除
             self.plugins_info = [p for p in self.plugins_info if p['name'] != plugin_name]
-            
-            # 步骤5：更新插件列表
             self.pluginsLoaded.emit(self.plugins_info)
-            
-            self.logger.info(f"插件 {plugin_name} 卸载完成")
+            self.logger.info(f"插件 {plugin_name} 已从列表中移除")
             return True
-            
-        except Exception as e:
-            self.pluginError.emit(plugin_name, f"卸载插件时发生错误: {str(e)}")
+        
+        # 步骤3：删除插件目录
+        self.logger.info(f"删除插件目录: {plugin_path}")
+        if not self._delete_plugin_directory(plugin_path):
+            self.pluginError.emit(plugin_name, f"删除插件目录失败: {plugin_path}")
             return False
+        
+        # 步骤4：从插件列表中移除
+        self.plugins_info = [p for p in self.plugins_info if p['name'] != plugin_name]
+        
+        # 步骤5：更新插件列表
+        self.pluginsLoaded.emit(self.plugins_info)
+        
+        self.logger.info(f"插件 {plugin_name} 卸载完成")
+        return True
     
     def _on_plugin_process_started(self, plugin_name: str):
         """插件进程启动成功回调"""
@@ -568,16 +612,213 @@ class PluginBridge(QObject):
             self.logger.error(f"获取环境 {env_name} 依赖信息失败: {e}")
             return {}
     
+    @Slot(str)
+    @handle_exceptions("生成插件README HTML", show_dialog=False, log_level="ERROR")
+    def generate_readme_html(self, plugin_name: str):
+        """生成插件的README.md HTML文件并返回文件路径"""
+        try:
+            self.logger.info(f"开始生成插件 {plugin_name} 的 README.md HTML")
+            
+            # 查找插件信息
+            plugin_info = self.get_plugin_by_name(plugin_name)
+            if not plugin_info:
+                self.logger.error(f"未找到插件: {plugin_name}")
+                self.readmeError.emit(plugin_name, "插件不存在")
+                return
+            
+            # 读取 README.md 文件
+            plugin_path = Path(plugin_info['path'])
+            readme_file = plugin_path / "README.md"
+            
+            if not readme_file.exists():
+                self.logger.warning(f"插件 {plugin_name} 缺少 README.md 文件")
+                self.readmeError.emit(plugin_name, "README.md 文件不存在")
+                return
+            
+            with open(readme_file, 'r', encoding='utf-8') as f:
+                markdown_content = f.read()
+            
+            # 转换为 HTML
+            html_content = self.markdown_to_html(markdown_content)
+            
+            # 生成临时 HTML 文件
+            temp_html_file = self.temp_dir / f"{plugin_name}_readme.html"
+            with open(temp_html_file, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            self.logger.info(f"成功生成临时 HTML 文件: {temp_html_file}")
+            self.logger.info(f"发射 readmeLoaded 信号: {plugin_name}, 文件路径: {temp_html_file}")
+            self.readmeLoaded.emit(plugin_name, str(temp_html_file))
+            self.logger.info("readmeLoaded 信号已发射")
+            
+        except Exception as e:
+            self.logger.error(f"生成插件 {plugin_name} README.md HTML 失败: {e}")
+            self.readmeError.emit(plugin_name, str(e))
+    
+    def markdown_to_html(self, markdown_content: str) -> str:
+        """将 Markdown 内容转换为 HTML"""
+        try:
+            # 使用 markdown 库转换
+            html = markdown.markdown(
+                markdown_content,
+                extensions=[
+                    'markdown.extensions.tables',      # 表格支持
+                    'markdown.extensions.fenced_code', # 代码块支持
+                    'markdown.extensions.codehilite',  # 代码高亮
+                    'markdown.extensions.toc',         # 目录支持
+                    'markdown.extensions.nl2br',       # 换行支持
+                ]
+            )
+            
+            # 添加自定义 CSS 样式
+            styled_html = f"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>插件文档</title>
+    <style>
+        body {{ 
+            font-family: 'Microsoft YaHei', Arial, sans-serif; 
+            font-size: 14px; 
+            line-height: 1.6; 
+            color: #333333; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #ffffff;
+        }}
+        h1 {{ 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #2c3e50; 
+            margin: 20px 0 16px 0; 
+            border-bottom: 2px solid #3498db; 
+            padding-bottom: 8px; 
+        }}
+        h2 {{ 
+            font-size: 20px; 
+            font-weight: bold; 
+            color: #34495e; 
+            margin: 18px 0 12px 0; 
+        }}
+        h3 {{ 
+            font-size: 16px; 
+            font-weight: bold; 
+            color: #34495e; 
+            margin: 16px 0 8px 0; 
+        }}
+        p {{ 
+            margin: 8px 0; 
+            line-height: 1.6; 
+        }}
+        ul, ol {{ 
+            margin: 8px 0; 
+            padding-left: 24px; 
+        }}
+        li {{ 
+            margin: 4px 0; 
+        }}
+        code {{ 
+            background-color: #f8f9fa; 
+            padding: 2px 6px; 
+            border-radius: 3px; 
+            font-family: 'Consolas', 'Monaco', monospace; 
+            font-size: 13px; 
+        }}
+        pre {{ 
+            background-color: #f8f9fa; 
+            padding: 12px; 
+            border-radius: 6px; 
+            overflow-x: auto; 
+            margin: 12px 0; 
+        }}
+        pre code {{
+            background-color: transparent;
+            padding: 0;
+        }}
+        blockquote {{ 
+            border-left: 4px solid #3498db; 
+            margin: 12px 0; 
+            padding-left: 16px; 
+            color: #666666; 
+        }}
+        strong {{ 
+            font-weight: bold; 
+            color: #2c3e50; 
+        }}
+        em {{ 
+            font-style: italic; 
+        }}
+        a {{ 
+            color: #3498db; 
+            text-decoration: none; 
+        }}
+        a:hover {{ 
+            text-decoration: underline; 
+        }}
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+            margin: 12px 0;
+        }}
+        th, td {{
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }}
+        th {{
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+<body>
+    {html}
+</body>
+</html>
+            """
+            
+            return styled_html
+            
+        except Exception as e:
+            self.logger.error(f"Markdown 转 HTML 失败: {e}")
+            # 返回简单的 HTML 包装
+            return f"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>插件文档</title>
+    <style>
+        body {{ 
+            font-family: 'Microsoft YaHei', Arial, sans-serif; 
+            font-size: 14px; 
+            line-height: 1.6; 
+            color: #333333; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #ffffff;
+        }}
+        pre {{
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }}
+    </style>
+</head>
+<body>
+    <pre>{markdown_content}</pre>
+</body>
+</html>
+            """
+    
+    
     @Slot(str, result=bool)
     @handle_exceptions("安装插件依赖", show_dialog=False, log_level="ERROR", return_value=False)
     def install_plugin_dependencies(self, plugin_name: str) -> bool:
         """手动安装插件依赖"""
-        try:
-            current_env_name = self._get_current_environment()
-            return self.dependency_manager.install_dependencies_lazy(current_env_name, plugin_name)
-        except Exception as e:
-            self.logger.error(f"安装插件 {plugin_name} 依赖失败: {e}")
-            return False
+        current_env_name = self._get_current_environment()
+        return self.dependency_manager.install_dependencies_lazy(current_env_name, plugin_name)
 
 
 # 注册 QML 类型

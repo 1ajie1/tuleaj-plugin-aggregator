@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景渐变 -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2E7D32;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="iconGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f5f5f5;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 背景圆形 -->
+  <circle cx="128" cy="128" r="120" fill="url(#bgGradient)" stroke="#1B5E20" stroke-width="4"/>
+  
+  <!-- 插件图标 - 四个模块 -->
+  <rect x="60" y="60" width="32" height="32" fill="url(#iconGradient)" rx="6" stroke="#4CAF50" stroke-width="2"/>
+  <rect x="164" y="60" width="32" height="32" fill="url(#iconGradient)" rx="6" stroke="#4CAF50" stroke-width="2"/>
+  <rect x="60" y="164" width="32" height="32" fill="url(#iconGradient)" rx="6" stroke="#4CAF50" stroke-width="2"/>
+  <rect x="164" y="164" width="32" height="32" fill="url(#iconGradient)" rx="6" stroke="#4CAF50" stroke-width="2"/>
+  
+  <!-- 中心连接点 -->
+  <circle cx="128" cy="128" r="16" fill="url(#iconGradient)" stroke="#4CAF50" stroke-width="3"/>
+  
+  <!-- 连接线 -->
+  <line x1="92" y1="76" x2="112" y2="112" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <line x1="196" y1="76" x2="176" y2="112" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <line x1="92" y1="196" x2="112" y2="176" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <line x1="196" y1="196" x2="176" y2="176" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  
+  <!-- 插件标识 -->
+  <circle cx="76" cy="76" r="4" fill="#4CAF50"/>
+  <circle cx="180" cy="76" r="4" fill="#4CAF50"/>
+  <circle cx="76" cy="180" r="4" fill="#4CAF50"/>
+  <circle cx="180" cy="180" r="4" fill="#4CAF50"/>
+  
+  <!-- 中心标识 -->
+  <circle cx="128" cy="128" r="6" fill="#2E7D32"/>
+</svg>
