@@ -11,3 +11,8 @@ dependencies = [
     "packaging>=21.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.16.0",
+]
+

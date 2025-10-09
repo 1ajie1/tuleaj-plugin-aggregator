@@ -35,6 +35,17 @@ ApplicationWindow {
         if (pluginBridge) {
             pluginBridge.pluginsLoaded.connect(pluginPanel.updatePluginList)
             pluginBridge.pluginStatusChanged.connect(pluginPanel.updatePluginStatus)
+            
+            // 连接插件安装信号
+            pluginBridge.pluginInstalled.connect(function(pluginName) {
+                console.log("插件安装完成:", pluginName)
+                showSuccessMessage("安装成功", "插件 " + pluginName + " 安装完成", 3000)
+            })
+            
+            pluginBridge.pluginError.connect(function(pluginName, error) {
+                console.log("插件错误:", pluginName, error)
+                showErrorMessage("插件操作失败", error, 5000)
+            })
            
             // 连接 README.md 相关信号
             console.log("main.qml: 开始连接 README.md 信号")
@@ -79,6 +90,13 @@ ApplicationWindow {
                 item.fileSelected.connect(function(filePath) {
                     console.log("选择的文件:", filePath)
                     showInfoMessage("插件安装", "正在安装插件: " + filePath, 3000)
+                    
+                    // 调用插件安装方法（异步）
+                    if (pluginBridge) {
+                        pluginBridge.install_whl_plugin(filePath)
+                    } else {
+                        showErrorMessage("安装失败", "插件桥接器不可用", 5000)
+                    }
                 })
                 item.cancelled.connect(function() {
                     console.log("取消选择文件")

@@ -116,6 +116,9 @@ class PluginProcessManager(QObject):
         # 先添加到正在启动的进程集合
         self.starting_processes.add(plugin_name)
         
+        # 先连接信号，再启动进程
+        self._connect_process_signals(process, plugin_name)
+        
         # 启动进程
         self.logger.info(f"准备启动进程: {plugin_name}")
         start_result = process.start()
@@ -133,7 +136,7 @@ class PluginProcessManager(QObject):
                 start_result = False
         
         if start_result:
-            # 只有在进程成功启动后才连接信号和添加到管理器
+            # 只有在进程成功启动后才添加到管理器
             self.processes[plugin_name] = process
             self.process_info[plugin_name]['pid'] = process.processId()
             self.process_info[plugin_name]['start_time'] = QTimer().remainingTime()
@@ -143,13 +146,10 @@ class PluginProcessManager(QObject):
             self.logger.info(f"processes 字典对象ID: {id(self.processes)}")
             self.logger.info(f"当前 processes 内容: {list(self.processes.keys())}")
             
-            # 连接信号
-            self._connect_process_signals(process, plugin_name)
-            
             self.logger.info(f"插件 {plugin_name} 进程启动命令已发送，PID: {process.processId()}")
             
-            # 立即从启动集合中移除，因为进程已经启动
-            self.starting_processes.discard(plugin_name)
+            # 备用机制：如果 started 信号没有被触发，延迟检查并发送状态更新
+            QTimer.singleShot(2000, lambda: self._check_and_update_startup_status(plugin_name))
             
             return True
         else:
@@ -289,12 +289,39 @@ class PluginProcessManager(QObject):
         """进程启动成功回调"""
         self.logger.info(f"插件 {plugin_name} 进程启动成功")
         
-        # 进程已经在 start_plugin 中从 starting_processes 中移除
+        # 从正在启动的进程集合中移除
+        self.starting_processes.discard(plugin_name)
+        
         # 延迟验证进程是否真正启动成功
         QTimer.singleShot(1000, lambda: self._verify_process_startup(plugin_name))
         
-        # 不立即发送启动信号，等待验证完成
-        # self.processStarted.emit(plugin_name)
+        # 立即发送启动信号，同时进行验证
+        self.processStarted.emit(plugin_name)
+        self.logger.info(f"已发送插件 {plugin_name} 启动成功信号")
+    
+
+    def _check_and_update_startup_status(self, plugin_name: str):
+        """备用机制：检查并更新启动状态"""
+        self.logger.info(f"备用检查：检查插件 {plugin_name} 的启动状态")
+        
+        if plugin_name not in self.processes:
+            self.logger.warning(f"插件 {plugin_name} 在备用检查时不在进程列表中")
+            return
+        
+        process = self.processes[plugin_name]
+        if not process:
+            self.logger.warning(f"插件 {plugin_name} 的进程对象为 None")
+            return
+        
+        process_state = process.state()
+        self.logger.info(f"插件 {plugin_name} 备用检查时的进程状态: {process_state}")
+        
+        # 如果进程正在运行但仍在 starting_processes 中，说明 started 信号没有被触发
+        if (process_state == QProcess.ProcessState.Running and 
+            plugin_name in self.starting_processes):
+            self.logger.info(f"检测到插件 {plugin_name} 正在运行但 started 信号未触发，手动发送状态更新")
+            self.starting_processes.discard(plugin_name)
+            self.processStarted.emit(plugin_name)
     
     def _verify_process_startup(self, plugin_name: str):
         """验证进程是否真正启动成功"""
@@ -462,22 +489,23 @@ class PluginProcessManager(QObject):
     def _disconnect_process_signals(self, process: QProcess, plugin_name: str) -> bool:
         """断开进程信号连接的辅助方法"""
         try:
-            process.disconnect()
+            # 逐个断开信号连接，避免使用无参数的disconnect()
+            process.started.disconnect()
+            process.finished.disconnect()
+            process.errorOccurred.disconnect()
+            process.readyReadStandardOutput.disconnect()
+            process.readyReadStandardError.disconnect()
             self.logger.info(f"已断开插件 {plugin_name} 的信号连接")
             return True
         except Exception as e:
             self.logger.warning(f"断开插件 {plugin_name} 信号连接时发生错误: {e}")
-            # 尝试逐个断开信号连接
+            # 尝试使用blockSignals来阻止信号
             try:
-                process.started.disconnect()
-                process.finished.disconnect()
-                process.errorOccurred.disconnect()
-                process.readyReadStandardOutput.disconnect()
-                process.readyReadStandardError.disconnect()
-                self.logger.info(f"已逐个断开插件 {plugin_name} 的信号连接")
+                process.blockSignals(True)
+                self.logger.info(f"已阻止插件 {plugin_name} 的信号")
                 return True
             except Exception as e2:
-                self.logger.warning(f"逐个断开信号连接时也发生错误: {e2}")
+                self.logger.warning(f"阻止信号时也发生错误: {e2}")
                 return False
     
     def _cleanup_process(self, plugin_name: str):

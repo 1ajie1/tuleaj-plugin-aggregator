@@ -5,6 +5,7 @@
 用于读取和管理插件信息
 """
 
+import os
 import toml
 import markdown
 import tempfile
@@ -114,6 +115,7 @@ class PluginBridge(QObject):
     pluginsLoaded = Signal(list)  # 插件列表加载完成
     pluginStatusChanged = Signal(str, str)  # 插件状态变化 (name, status)
     pluginError = Signal(str, str)  # 插件错误 (name, error)
+    pluginInstalled = Signal(str)  # 插件安装完成 (plugin_name)
     dependencyInstalling = Signal(str, str)  # 依赖安装中 (plugin_name, package_name)
     dependencyInstalled = Signal(str, str, bool, str)  # 依赖安装完成 (env_name, package_name, success, message)
     dependencySyncStarted = Signal(str)  # 依赖同步开始 (env_name)
@@ -265,24 +267,30 @@ class PluginBridge(QObject):
             self.dependencyInstalling.emit(plugin_name, "正在管理依赖...")
             
             # 读取插件依赖
+            self.logger.info(f"开始读取插件 {plugin_name} 的依赖...")
             plugin_deps = self.dependency_manager.read_plugin_dependencies(plugin_path)
+            self.logger.info(f"插件 {plugin_name} 依赖读取结果: {len(plugin_deps)} 个依赖")
+            
             if plugin_deps:
                 self.logger.info(f"发现插件 {plugin_name} 的依赖: {[str(dep) for dep in plugin_deps]}")
                 
                 # 解决依赖冲突
+                self.logger.info(f"开始解决环境 {current_env_name} 的依赖冲突...")
                 resolved_deps = self.dependency_manager.resolve_dependencies(current_env_name)
                 self.logger.info(f"协商后的依赖: {resolved_deps}")
                 
                 # 使用 uv sync 同步依赖
+                self.logger.info(f"开始使用 uv sync 同步环境 {current_env_name} 的依赖...")
                 sync_success = self.dependency_manager.sync_dependencies_with_uv(current_env_name, resolved_deps)
                 
                 if not sync_success:
+                    self.logger.error(f"插件 {plugin_name} 依赖同步失败")
                     self.pluginError.emit(plugin_name, "依赖同步失败")
                     return False
                 
-                self.logger.info("依赖同步成功")
+                self.logger.info(f"插件 {plugin_name} 依赖同步成功")
             else:
-                self.logger.info(f"插件 {plugin_name} 没有依赖")
+                self.logger.info(f"插件 {plugin_name} 没有依赖，跳过依赖同步")
             
             # 步骤2：启动插件进程
             self.logger.info(f"启动插件 {plugin_name}...")
@@ -515,18 +523,13 @@ class PluginBridge(QObject):
                 self.logger.info(f"构建的环境路径: {env_path}")
                 return str(env_path)
             else:
-                # 如果没有配置当前环境，使用默认环境
-                from pathlib import Path
-                project_root = Path(__file__).parent.parent.parent
-                default_env_path = project_root / "envs" / "tuleaj-plugin-aggregator"
-                self.logger.info(f"使用默认环境路径: {default_env_path}")
-                return str(default_env_path)
+                # 如果没有配置当前环境，返回空字符串
+                self.logger.warning("没有配置当前环境")
+                return ""
                 
         except Exception as e:
             self.logger.error(f"获取当前环境失败: {str(e)}")
-            from pathlib import Path
-            project_root = Path(__file__).parent.parent.parent
-            return str(project_root / "envs" / "tuleaj-plugin-aggregator")
+            return ""
     
     def _get_mirror_url(self) -> str:
         """获取镜像源URL"""
@@ -819,6 +822,125 @@ class PluginBridge(QObject):
         """手动安装插件依赖"""
         current_env_name = self._get_current_environment()
         return self.dependency_manager.install_dependencies_lazy(current_env_name, plugin_name)
+    
+    @Slot(str)
+    @handle_exceptions("安装whl插件", show_dialog=False, log_level="ERROR")
+    def install_whl_plugin(self, whl_file_path: str):
+        """安装.whl格式的插件（异步）"""
+        try:
+            whl_path = Path(whl_file_path)
+            if not whl_path.exists():
+                self.pluginError.emit("", f"文件不存在: {whl_file_path}")
+                return
+            
+            if not whl_path.suffix.lower() == '.whl':
+                self.pluginError.emit("", f"文件格式错误，只支持.whl文件: {whl_file_path}")
+                return
+            
+            self.logger.info(f"开始安装.whl插件: {whl_path}")
+            
+            # 异步执行安装
+            self._install_whl_async(whl_path)
+                
+        except Exception as e:
+            self.logger.error(f"安装.whl插件时发生错误: {e}")
+            self.pluginError.emit("", f"安装错误: {str(e)}")
+    
+    def _install_whl_async(self, whl_path: Path):
+        """异步安装whl插件"""
+        import threading
+        import zipfile
+        import shutil
+        
+        def install_worker():
+            try:
+                # 解析whl文件名获取插件名称
+                whl_name = whl_path.stem  # 去掉.whl扩展名
+                # 从文件名中提取插件名称（去掉版本号）
+                # 例如: system_monitor-1.0.0-py3-none-any -> system_monitor
+                plugin_name = whl_name.split('-')[0]
+                
+                self.logger.info(f"开始解压插件: {plugin_name}")
+                
+                # 创建插件目录
+                plugin_dir = Path(self.plugins_dir) / plugin_name
+                if plugin_dir.exists():
+                    self.logger.warning(f"插件目录已存在，将覆盖: {plugin_dir}")
+                    shutil.rmtree(plugin_dir)
+                
+                plugin_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 解压whl文件
+                with zipfile.ZipFile(whl_path, 'r') as zip_ref:
+                    zip_ref.extractall(plugin_dir)
+                
+                self.logger.info(f"成功解压插件到: {plugin_dir}")
+                
+                # 检查是否有pyproject.toml文件，如果没有则创建一个
+                pyproject_file = plugin_dir / "pyproject.toml"
+                if not pyproject_file.exists():
+                    self.logger.info(f"创建默认pyproject.toml文件: {pyproject_file}")
+                    self._create_default_pyproject(plugin_dir, plugin_name)
+                
+                # 刷新插件列表
+                self.scan_plugins()
+                
+                # 发送成功信号
+                self.pluginInstalled.emit(plugin_name)
+                self.logger.info(f"成功安装.whl插件: {plugin_name}")
+                    
+            except zipfile.BadZipFile:
+                self.logger.error(f"whl文件格式错误: {whl_path}")
+                self.pluginError.emit("", "whl文件格式错误，无法解压")
+            except Exception as e:
+                self.logger.error(f"安装.whl插件时发生错误: {e}")
+                self.pluginError.emit("", f"安装错误: {str(e)}")
+        
+        # 在后台线程中执行安装
+        thread = threading.Thread(target=install_worker)
+        thread.daemon = True
+        thread.start()
+    
+    def _create_default_pyproject(self, plugin_dir: Path, plugin_name: str):
+        """创建默认的pyproject.toml文件"""
+        pyproject_content = f'''[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{plugin_name}"
+version = "1.0.0"
+description = "Plugin installed from {plugin_name}.whl"
+authors = [
+    {{name = "Unknown", email = "unknown@example.com"}}
+]
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[plugin-metadata]
+name = "{plugin_name}"
+version = "1.0.0"
+author = "Unknown"
+icon = "📦"
+entry_point = "main.py"
+description = "Plugin installed from {plugin_name}.whl"
+'''
+        
+        pyproject_file = plugin_dir / "pyproject.toml"
+        with open(pyproject_file, 'w', encoding='utf-8') as f:
+            f.write(pyproject_content)
+        
+        self.logger.info(f"已创建默认pyproject.toml文件: {pyproject_file}")
 
 
 # 注册 QML 类型

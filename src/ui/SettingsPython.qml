@@ -83,7 +83,11 @@ Rectangle {
                     }
                     
                     Text {
-                        text: configBridge ? configBridge.currentEnvironmentName : "未知环境"
+                        text: {
+                            if (!configBridge) return "空"
+                            var envName = configBridge.currentEnvironmentName
+                            return envName && envName.trim() !== "" ? envName : "空"
+                        }
                         font.pixelSize: 12
                         color: "#666666"
                         Layout.fillWidth: true
@@ -112,7 +116,11 @@ Rectangle {
                     }
                     
                     Text {
-                        text: configBridge ? configBridge.currentPythonVersion : "未知版本"
+                        text: {
+                            if (!configBridge) return "空"
+                            var pythonVersion = configBridge.currentPythonVersion
+                            return pythonVersion && pythonVersion.trim() !== "" ? pythonVersion : "空"
+                        }
                         font.pixelSize: 12
                         color: "#666666"
                         Layout.fillWidth: true
@@ -365,10 +373,8 @@ Rectangle {
         var environments = configBridge ? configBridge.environmentsList : []
         console.log("可用环境:", environments.length, "个")
         
-        if (environments.length === 0) {
-            console.log("没有可用的环境")
-            return
-        }
+        // 即使没有环境也显示环境管理窗口，让用户可以创建新环境
+        console.log("显示环境管理窗口")
         
         // 显示环境管理窗口
         environmentManagementLoader.active = true

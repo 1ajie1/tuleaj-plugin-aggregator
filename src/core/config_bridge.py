@@ -37,6 +37,17 @@ class PythonEnvironmentWorker(QThread):
     # 内部信号，用于在工作线程中触发操作
     createEnvironmentRequested = Signal(str, str, int)  # 环境名, Python版本, 超时时间
     
+    @staticmethod
+    def _get_hidden_subprocess_startupinfo():
+        """获取隐藏窗口的subprocess启动信息"""
+        import subprocess
+        if os.name == 'nt':  # Windows
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            return startupinfo
+        return None
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logger = Logger(log_level="INFO")
@@ -84,7 +95,9 @@ class PythonEnvironmentWorker(QThread):
                 
                 # 检查 uv 是否可用
                 try:
-                    uv_check = subprocess.run(["uv", "--version"], capture_output=True, text=True, timeout=10, encoding='utf-8', errors='ignore')
+                    startupinfo = self._get_hidden_subprocess_startupinfo()
+                    uv_check = subprocess.run(["uv", "--version"], capture_output=True, text=True, timeout=10, 
+                                            encoding='utf-8', errors='ignore', startupinfo=startupinfo)
                     self.logger.info(f"uv 版本检查: {uv_check.stdout.strip()}")
                 except Exception as e:
                     self.logger.error(f"uv 命令检查失败: {str(e)}")
@@ -113,8 +126,10 @@ dev-dependencies = []
                 self.logger.info(f"执行命令: {' '.join(cmd)}")
                 self.logger.info(f"工作目录: {env_path}")
                 
+                startupinfo = self._get_hidden_subprocess_startupinfo()
                 result = subprocess.run(cmd, check=True, capture_output=True, text=True, 
-                                      timeout=timeout_seconds, cwd=str(env_path), encoding='utf-8', errors='ignore')
+                                      timeout=timeout_seconds, cwd=str(env_path), encoding='utf-8', errors='ignore',
+                                      startupinfo=startupinfo)
                 self.logger.info(f"uv venv 输出: {result.stdout}")
                 if result.stderr:
                     self.logger.info(f"uv venv 错误输出: {result.stderr}")
@@ -144,8 +159,10 @@ dev-dependencies = []
             
             # 获取Python版本信息
             try:
+                startupinfo = self._get_hidden_subprocess_startupinfo()
                 version_result = subprocess.run([str(python_exe), "--version"], 
-                                              capture_output=True, text=True, check=True, timeout=30, encoding='utf-8', errors='ignore')
+                                              capture_output=True, text=True, check=True, timeout=30, 
+                                              encoding='utf-8', errors='ignore', startupinfo=startupinfo)
                 python_version_info = version_result.stdout.strip()
             except subprocess.TimeoutExpired:
                 self.environmentCreated.emit(env_name, False, "获取Python版本信息超时")
@@ -211,7 +228,7 @@ dev-dependencies = []
     
     @silent_exceptions(return_value=None)
     def get_environment_info(self, env_name: str) -> Optional[Dict[str, Any]]:
-        """获取环境信息"""
+        """获取环境信息（优化版本，减少外部命令调用）"""
         env_path = self.environments_dir / env_name
         
         if not env_path.exists():
@@ -224,76 +241,55 @@ dev-dependencies = []
             # uv init 创建的环境
             if os.name == 'nt':  # Windows
                 python_exe = venv_path / "Scripts" / "python.exe"
-                pip_exe = venv_path / "Scripts" / "pip.exe"
             else:  # Unix/Linux
                 python_exe = venv_path / "bin" / "python"
-                pip_exe = venv_path / "bin" / "pip"
         else:
             # 传统的 venv 创建的环境
             if os.name == 'nt':  # Windows
                 python_exe = env_path / "Scripts" / "python.exe"
-                pip_exe = env_path / "Scripts" / "pip.exe"
             else:  # Unix/Linux
                 python_exe = env_path / "bin" / "python"
-                pip_exe = env_path / "bin" / "pip"
         
         if not python_exe.exists():
             self.logger.warning(f"Python可执行文件不存在: {python_exe}")
             return None
         
-        # 获取Python版本
+        # 快速获取Python版本（减少超时时间）
+        python_version = "Python 3.11.13"  # 默认版本
         try:
+            # 使用隐藏窗口的subprocess启动信息
+            startupinfo = PythonEnvironmentWorker._get_hidden_subprocess_startupinfo()
             result = subprocess.run([str(python_exe), "--version"], 
-                                  capture_output=True, text=True, check=True, timeout=10)
+                                  capture_output=True, text=True, check=True, timeout=3,
+                                  startupinfo=startupinfo)
             python_version = result.stdout.strip()
-            self.logger.info(f"获取到Python版本: {python_version}")
+            self.logger.debug(f"获取到Python版本: {python_version}")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            self.logger.error(f"获取Python版本失败: {str(e)}")
-            python_version = "未知版本"
+            self.logger.warning(f"获取Python版本失败，使用默认版本: {str(e)}")
         
-        # 使用uv获取已安装的包
-        packages = []
-        try:
-            # 使用uv pip list获取包列表
-            uv_cmd = ["uv", "pip", "list", "--python", str(python_exe)]
-            result = subprocess.run(uv_cmd, capture_output=True, text=True, check=True, timeout=30, encoding='utf-8', errors='replace')
-            
-            # 解析uv pip list的输出
-            lines = result.stdout.strip().split('\n')
-            for line in lines[2:]:  # 跳过标题行
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        packages.append({
-                            "name": parts[0],
-                            "version": parts[1]
-                        })
-            self.logger.info(f"使用uv获取到 {len(packages)} 个包")
-        except (subprocess.CalledProcessError, IndexError, ValueError, subprocess.TimeoutExpired) as e:
-            self.logger.warning(f"使用uv获取包列表失败: {str(e)}")
-            # 如果uv失败，尝试使用pip
-            try:
-                result = subprocess.run([str(pip_exe), "list", "--format=json"], 
-                                      capture_output=True, text=True, check=True, timeout=30)
-                import json
-                packages = json.loads(result.stdout)
-                self.logger.info(f"使用pip获取到 {len(packages)} 个包")
-            except (subprocess.CalledProcessError, json.JSONDecodeError, ValueError, subprocess.TimeoutExpired) as e:
-                self.logger.warning(f"使用pip获取包列表也失败: {str(e)}")
-                packages = []
+        # 跳过包列表获取（这是最耗时的操作）
+        # 在环境管理界面中，包列表可以通过其他方式获取
+        packages_count = 0
         
-        # 获取环境大小
+        # 快速获取环境大小（限制递归深度）
         total_size = 0
         try:
-            for file_path in env_path.rglob('*'):
-                if file_path.is_file():
-                    total_size += file_path.stat().st_size
+            # 只计算主要目录的大小，避免深度递归
+            for item in env_path.iterdir():
+                if item.is_file():
+                    total_size += item.stat().st_size
+                elif item.is_dir() and item.name in ['.venv', 'Scripts', 'bin', 'lib', 'include']:
+                    # 只计算重要目录
+                    for file_path in item.rglob('*'):
+                        if file_path.is_file():
+                            total_size += file_path.stat().st_size
+                            if total_size > 100 * 1024 * 1024:  # 限制最大100MB
+                                break
         except Exception as e:
             self.logger.warning(f"计算环境大小时发生错误: {str(e)}")
             total_size = 0
         
         # 检查是否为当前环境
-        # 通过父对象（ConfigBridge）获取当前环境名称
         current_env_name = ""
         if hasattr(self.parent(), 'currentEnvironmentName'):
             current_env_name = self.parent().currentEnvironmentName
@@ -302,13 +298,13 @@ dev-dependencies = []
             "name": env_name,
             "path": str(env_path),
             "python_version": python_version,
-            "packages_count": len(packages),
+            "packages_count": packages_count,
             "size_mb": round(total_size / (1024 * 1024), 2),
             "created_time": env_path.stat().st_ctime,
             "is_active": env_name == current_env_name
         }
         
-        self.logger.info(f"构建环境信息: {env_info}")
+        self.logger.debug(f"构建环境信息: {env_info}")
         return env_info
 
 
@@ -422,7 +418,7 @@ class ConfigBridge(QObject):
     @Property(str, notify=currentEnvironmentChanged)
     def currentEnvironmentName(self) -> str:
         """当前环境名称"""
-        return self.config_manager.get("environments.current", "tuleaj-plugin-aggregator")
+        return self.config_manager.get("environments.current", "")
     
     @Property(str, notify=currentEnvironmentChanged)
     def currentEnvironmentPath(self) -> str:
@@ -432,7 +428,7 @@ class ConfigBridge(QObject):
     @Property(str, notify=currentEnvironmentChanged)
     def currentPythonVersion(self) -> str:
         """当前Python版本"""
-        return self.config_manager.get("environments.current_python_version", "Python 3.11.0")
+        return self.config_manager.get("environments.current_python_version", "")
     
     # === 插件配置属性 ===
     @Property(str, constant=True)
@@ -830,8 +826,9 @@ class ConfigBridge(QObject):
                 return False
             
             # 测试Python是否可执行
+            startupinfo = PythonEnvironmentWorker._get_hidden_subprocess_startupinfo()
             result = subprocess.run([str(python_exe), "--version"], 
-                                  capture_output=True, text=True, timeout=10)
+                                  capture_output=True, text=True, timeout=10, startupinfo=startupinfo)
             return result.returncode == 0
             
         except Exception as e:
@@ -952,7 +949,8 @@ class ConfigBridge(QObject):
             cmd.extend(["--index-url", mirror_url])
             self.logger.info(f"使用镜像源安装包: {mirror_url}")
         
-        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        startupinfo = PythonEnvironmentWorker._get_hidden_subprocess_startupinfo()
+        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace', startupinfo=startupinfo)
         
         self.logger.info(f"在环境 {env_name} 中成功安装包: {package_name}")
         return True
@@ -973,7 +971,8 @@ class ConfigBridge(QObject):
         
         # 使用uv卸载包
         cmd = ["uv", "pip", "uninstall", package_name, "--python", str(env_path / ("Scripts" if os.name == 'nt' else "bin") / "python.exe")]
-        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        startupinfo = PythonEnvironmentWorker._get_hidden_subprocess_startupinfo()
+        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace', startupinfo=startupinfo)
         
         self.logger.info(f"在环境 {env_name} 中成功卸载包: {package_name}")
         return True
@@ -994,7 +993,8 @@ class ConfigBridge(QObject):
         
         # 使用uv获取包列表
         cmd = ["uv", "pip", "list", "--python", str(python_exe)]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
+        startupinfo = PythonEnvironmentWorker._get_hidden_subprocess_startupinfo()
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace', startupinfo=startupinfo)
         
         packages = []
         lines = result.stdout.strip().split('\n')
@@ -1032,7 +1032,8 @@ class ConfigBridge(QObject):
             cmd.extend(["--index-url", mirror_url])
             self.logger.info(f"使用镜像源同步环境: {mirror_url}")
         
-        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        startupinfo = PythonEnvironmentWorker._get_hidden_subprocess_startupinfo()
+        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace', startupinfo=startupinfo)
         
         self.logger.info(f"成功同步环境 {env_name} 的依赖")
         return True
